@@ -665,6 +665,38 @@ unsafe fn _set_foreground_window_ex(target_window: HWND) -> HWND {
 	} else {
 		return HWND(0);
     }
+    //  And if that doesn't work
+    // https://stackoverflow.com/questions/17782622/understanding-systemparametersinfo-spi-setforegroundlocktimeout
+    /*
+    
+void SetForegroundLockTimeout()
+{
+	// Even though they may not help in all OSs and situations, this lends peace-of-mind.
+	// (it doesn't appear to help on my XP?)
+	if (g_os.IsWin98orLater() || g_os.IsWin2000orLater())
+	{
+		// Don't check for failure since this operation isn't critical, and don't want
+		// users continually haunted by startup error if for some reason this doesn't
+		// work on their system:
+		if (SystemParametersInfo(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, &g_OriginalTimeout, 0))
+			if (g_OriginalTimeout) // Anti-focus stealing measure is in effect.
+			{
+				// Set it to zero instead, disabling the measure:
+				SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, (PVOID)0, SPIF_SENDCHANGE);
+//				if (!SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, (PVOID)0, SPIF_SENDCHANGE))
+//					MsgBox("Enable focus-stealing: set-call to SystemParametersInfo() failed.");
+			}
+//			else
+//				MsgBox("Enable focus-stealing: it was already enabled.");
+//		else
+//			MsgBox("Enable focus-stealing: get-call to SystemParametersInfo() failed.");
+	}
+//	else
+//		MsgBox("Enable focus-stealing: neither needed nor supported under Win95 and WinNT.");
+}
+
+
+*/
 }
 
 
