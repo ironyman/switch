@@ -59,7 +59,13 @@ use windows::{
         FindWindowA,
         IsIconic,
         ShowWindow,
-        SW_RESTORE
+        SW_RESTORE,
+        WINDOW_STYLE,
+        WS_POPUP,
+        WS_CHILD,
+        GWL_STYLE,
+        GetWindow,
+        GW_OWNER,
     },
     Win32::UI::Input::KeyboardAndMouse::{
         SetFocus,
@@ -107,7 +113,7 @@ use windows::{
     },
 };
 
-use windows::Win32::UI::WindowsAndMessaging::*;
+//use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub struct WindowInfo {
     pub windowh: HWND,
@@ -121,6 +127,14 @@ pub struct WindowInfo {
 impl Drop for WindowInfo {
     fn drop(&mut self) {
         
+    }
+}
+
+impl std::fmt::Display for WindowInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}: {} ({:#x}, {:#x}, {:#x})",
+            self.image_name, self.window_text,
+            self.process_id, self.style.0, self.ex_style.0)
     }
 }
 

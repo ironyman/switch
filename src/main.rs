@@ -21,13 +21,13 @@ use tui::{
     Frame, Terminal,
 };
 
-use crate::windows::{
-    WindowInfo,
-    enum_window,
-    set_foreground_window_ex,
+use crate::listcontentprovider::{
+    ListContentProvider,
+    WindowProvider,
 };
 
 mod windows;
+mod listcontentprovider;
 
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
 /// around `ListState`. Keeping track of the items state let us render the associated widget with its state
@@ -35,28 +35,26 @@ mod windows;
 ///
 /// Check the event handling at the bottom to see how to change the state on incoming events.
 /// Check the drawing logic for items on how to specify the highlighting style for selected items.
-struct App {
+struct SearchableListApp {
     input_buffer: Vec<char>,
     list_state: ListState,
-    list: Vec<WindowInfo>,
+    provider: Box<dyn ListContentProvider>,
     // input_window: HWND,
 }
 
-impl<'a> App {
-    fn new() -> App {
-        let windows = enum_window().unwrap();
-
-        App {
+impl<'a> SearchableListApp {
+    fn new(provider: Box<dyn ListContentProvider>) -> SearchableListApp {
+        SearchableListApp {
             list_state: ListState::default(),
             input_buffer: Vec::new(),
-            list: windows,
+            provider,
             // input_window: create_window().unwrap(),
         }
     }
 
     fn next(&mut self) {
         // let list = self.list.len();
-        let list = self.get_filtered_list();
+        let list = self.provider.get_filtered_list();
         let i = match self.list_state.selected() {
             Some(i) => {
                 if i >= list.len() - 1 {
@@ -72,7 +70,7 @@ impl<'a> App {
 
     fn previous(&mut self) {
         // let list = self.list.len();
-        let list = self.get_filtered_list();
+        let list = self.provider.get_filtered_list();
 
         let i = match self.list_state.selected() {
             Some(i) => {
@@ -99,22 +97,9 @@ impl<'a> App {
         //     }
         // }
     }
-
-    fn get_filtered_list(&'a self) -> Vec<&'a WindowInfo> {
-        // Skip the first one which is the host of this app, wt or conhost.
-        self.list.iter().skip(1).filter(|&w| {
-            if w.image_name.to_lowercase().contains(&self.input_buffer.iter().cloned().collect::<String>()) {
-                return true;
-            }
-            if w.window_text.to_lowercase().contains(&self.input_buffer.iter().cloned().collect::<String>()) {
-                return true;
-            }
-            return false;
-        }).collect()
-    }
 }
 
-impl Drop for App {
+impl Drop for SearchableListApp {
     fn drop(&mut self) {
         // unsafe {
             // DestroyWindow(self.input_window);
@@ -135,7 +120,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // create app and run it
     let tick_rate = Duration::from_millis(250);
-    let mut app = App::new();
+    let mut app = SearchableListApp::new(WindowProvider::new());
     app.next();
 
     let res = run_app(&mut terminal, app, tick_rate);
@@ -158,7 +143,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    mut app: SearchableListApp,
     tick_rate: Duration,
 ) -> io::Result<()> {
     let mut last_tick = Instant::now();
@@ -177,6 +162,7 @@ fn run_app<B: Backend>(
                             return Ok(())
                         }
                         app.input_buffer.push(c);
+                        app.provider.set_filter(app.input_buffer.iter().cloned().collect::<String>());
                         app.list_state.select(Some(0));
                     },
                     KeyCode::Left => app.unselect(),
@@ -209,7 +195,8 @@ fn run_app<B: Backend>(
                         
                         //set_foreground_window_in_foreground(app.list[selected].windowh);
                         // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
-                        set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
+                        // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
+                        app.provider.activate(selected);
                         return Ok(())
                     }
                     _ => {}
@@ -223,7 +210,7 @@ fn run_app<B: Backend>(
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
+fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
     // Create two chunks with equal horizontal screen space
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -231,10 +218,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
         .split(f.size());
 
     // Iterate through all elements in the `items` app and append some debug text to it.
-    let items: Vec<ListItem> = app
+    let items: Vec<ListItem> = app.provider
         .get_filtered_list()
         .iter()
-        .map(|&i| {
+        .map(|i| {
             // let mut lines = vec![Spans::from(i.0)];
             // for _ in 0..i.1 {
             //     lines.push(Spans::from(Span::styled(
@@ -243,7 +230,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
             //     )));
             // }
             // ListItem::new(lines).style(Style::default().fg(Color::Black).bg(Color::White))
-            ListItem::new(Spans::from(format!("{}: {} ({}, {}, {})", i.image_name, i.window_text, i.process_id, i.style.0, i.ex_style.0)))
+            ListItem::new(Spans::from(String::from(i)))
         })
         .collect();
 
