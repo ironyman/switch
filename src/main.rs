@@ -24,6 +24,7 @@ use tui::{
 use crate::listcontentprovider::{
     ListContentProvider,
     WindowProvider,
+    StartAppsProvider,
 };
 
 mod windows;
@@ -38,23 +39,47 @@ mod listcontentprovider;
 struct SearchableListApp {
     input_buffer: Vec<char>,
     list_state: ListState,
-    provider: Box<dyn ListContentProvider>,
+    providers: Vec<Box<dyn ListContentProvider>>,
+    selected_provider: usize,
     // input_window: HWND,
 }
 
 impl<'a> SearchableListApp {
-    fn new(provider: Box<dyn ListContentProvider>) -> SearchableListApp {
+    fn new(providers: Vec<Box<dyn ListContentProvider>>) -> SearchableListApp {
         SearchableListApp {
             list_state: ListState::default(),
             input_buffer: Vec::new(),
-            provider,
+            providers,
+            selected_provider: 0,
             // input_window: create_window().unwrap(),
         }
     }
 
-    fn next(&mut self) {
+    fn current_provider(&self) -> &dyn ListContentProvider {
+        assert!(self.selected_provider < self.providers.len());
+        return self.providers[self.selected_provider].as_ref()
+    }
+
+    fn current_provider_mut(&mut self) -> &mut dyn ListContentProvider {
+        assert!(self.selected_provider < self.providers.len());
+        return self.providers[self.selected_provider].as_mut()
+    }
+
+    fn next_provider(&mut self) {
+        self.selected_provider = if self.selected_provider >= self.providers.len() {
+            0
+        } else {
+            self.selected_provider + 1
+        };
+    }
+
+    fn set_filter(&mut self, filter: String) {
+        self.current_provider_mut().set_filter(filter);
+    }
+
+    fn list_next(&mut self) {
         // let list = self.list.len();
-        let list = self.provider.get_filtered_list();
+        let list = self.current_provider().get_filtered_list();
         let i = match self.list_state.selected() {
             Some(i) => {
                 if i >= list.len() - 1 {
@@ -68,9 +93,9 @@ impl<'a> SearchableListApp {
         self.list_state.select(Some(i));
     }
 
-    fn previous(&mut self) {
+    fn list_previous(&mut self) {
         // let list = self.list.len();
-        let list = self.provider.get_filtered_list();
+        let list = self.current_provider().get_filtered_list();
 
         let i = match self.list_state.selected() {
             Some(i) => {
@@ -85,7 +110,7 @@ impl<'a> SearchableListApp {
         self.list_state.select(Some(i));
     }
 
-    fn unselect(&mut self) {
+    fn list_unselect(&mut self) {
         self.list_state.select(None);
     }
 
@@ -120,8 +145,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // create app and run it
     let tick_rate = Duration::from_millis(250);
-    let mut app = SearchableListApp::new(WindowProvider::new());
-    app.next();
+    let mut app = SearchableListApp::new(vec![
+        WindowProvider::new(),
+        StartAppsProvider::new(),
+    ]);
+    
+    app.list_next();
 
     let res = run_app(&mut terminal, app, tick_rate);
 
@@ -162,12 +191,12 @@ fn run_app<B: Backend>(
                             return Ok(())
                         }
                         app.input_buffer.push(c);
-                        app.provider.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
                         app.list_state.select(Some(0));
                     },
-                    KeyCode::Left => app.unselect(),
-                    KeyCode::Down => app.next(),
-                    KeyCode::Up => app.previous(),
+                    KeyCode::Left => app.list_unselect(),
+                    KeyCode::Down => app.list_next(),
+                    KeyCode::Up => app.list_previous(),
                     KeyCode::Backspace => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
@@ -196,7 +225,7 @@ fn run_app<B: Backend>(
                         //set_foreground_window_in_foreground(app.list[selected].windowh);
                         // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
                         // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
-                        app.provider.activate(selected);
+                        app.current_provider().activate(selected);
                         return Ok(())
                     }
                     _ => {}
@@ -218,7 +247,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
         .split(f.size());
 
     // Iterate through all elements in the `items` app and append some debug text to it.
-    let items: Vec<ListItem> = app.provider
+    let items: Vec<ListItem> = app.current_provider()
         .get_filtered_list()
         .iter()
         .map(|i| {
