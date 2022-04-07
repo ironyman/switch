@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 crossterm = { version = "0.22" }
 tui = { version = "0.17.0" }
+walkdir = "2"
 
 [dependencies.windows]
 version = "0.34.0"
