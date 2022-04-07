@@ -204,6 +204,8 @@ fn run_app<B: Backend>(
                         } else {
                             app.input_buffer.pop();
                         }
+                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                        app.list_state.select(Some(0));
                     },
                     KeyCode::Esc => {
                         return Ok(())
@@ -265,7 +267,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
 
     // Create a List from all list items and highlight the currently selected one
     let items = List::new(items)
-        .block(Block::default().borders(Borders::NONE).title(Spans::from(app.input_buffer.iter().cloned().collect::<String>())))
+        .block(Block::default().borders(Borders::NONE).title(Spans::from("> ".to_string() + &app.input_buffer.iter().cloned().collect::<String>())))
         .highlight_style(
             Style::default()
                 .bg(Color::LightGreen)
