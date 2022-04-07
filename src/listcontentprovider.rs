@@ -62,10 +62,13 @@ pub struct StartAppsProvider {
 
 impl StartAppsProvider {
     pub fn new() -> Box<Self> {
-        Box::new(StartAppsProvider {
+        let mut new = Box::new(StartAppsProvider {
             apps: vec![],
             filter: "".into(),
-        })
+        });
+
+        new.fill();
+        new
     }
 
     fn get_user_start(&self) -> std::path::PathBuf {
@@ -90,7 +93,6 @@ impl StartAppsProvider {
         roots.push(std::path::PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs"));
         self.add_path_directories(&mut roots);
 
-
         for r in roots.iter() {
             let results = walkdir::WalkDir::new(r)
                 .into_iter()
@@ -114,11 +116,7 @@ impl StartAppsProvider {
 
 impl ListContentProvider for StartAppsProvider {
     fn get_filtered_list(&self) -> Vec<String> {
-        if self.apps.len() == 0 {
-            self.get_app_list();
-        }
-
-        self.apps.iter().map(|w| {
+        self.get_app_list().iter().map(|w| {
             w.file_name().unwrap().to_str().unwrap().into()
         }).filter(|f: &String| f.to_lowercase().contains(&self.filter))
         .collect::<Vec<String>>()
