@@ -67,7 +67,7 @@ impl StartAppsProvider {
             filter: "".into(),
         });
 
-        new.fill();
+        // new.fill();
         new
     }
 
