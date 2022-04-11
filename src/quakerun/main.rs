@@ -1,4 +1,4 @@
-// cargo run --bin quakerun C:\Users\changyl\Desktop\switch\target\debug\switch.exe
+// cargo run --bin quakerun -- -c C:\Users\changyl\Desktop\switch\target\debug\switch.exe
 // #![cfg_attr(my_feature_name_i_made_up, windows_subsystem = "windows")]
 
 #![allow(unused_imports)]
@@ -20,16 +20,20 @@ use windows::{
     Win32::System::Diagnostics::Debug::*,
 };
 
+use clap::{Arg, Command};
+
 #[path="../windows2.rs"]
 mod windows2;
 
 const WAIT_QUAKE_SECONDS: u32 = 60;
 const QUAKE_HOT_KEY_ID: i32 = 1;
-
-static mut SHOULD_EXIT_EVENT: HANDLE = HANDLE(0);
+const OPEN_QUAKE_EVENT_NAME: &str = "OpenQuake";
+const HIDE_QUAKE_EVENT_NAME: &str = "HideQuake";
+const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
+const RUN_QUAKE_EVENT_NAME: &str = "RunQuake";
 
 unsafe fn create_process(cmdline: String) -> Result<u32> {
-    let mut cmdline = cmdline.encode_utf16().collect::<Vec<u16>>();
+    let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
     let mut si: STARTUPINFOW = std::mem::zeroed();
     let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
     si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
@@ -56,8 +60,11 @@ unsafe fn create_process(cmdline: String) -> Result<u32> {
     return Ok(pi.dwProcessId);
 }
 
-unsafe fn create_initial_quake_window() -> Result<HWND> {
-    let cmdline = "wt -w _quake cmd /c echo I am waiting for commands & timeout /t -1 /nobreak\0".to_string();
+unsafe fn create_initial_quake_window(command: &str) -> Result<HWND> {
+    let cmdline = "wt -w _quake ".to_string() 
+        + &format!("{} --runner -c {}", std::env::current_exe().unwrap().to_str().unwrap(), command);
+    println!("Running {}", cmdline);
+
     let pid = create_process(cmdline)?;
     return Ok(wait_for_quake_window_start(pid)?);
 }
@@ -173,7 +180,7 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
     if ctrltype == CTRL_C_EVENT {
         println!("Ctrl-c hit, exiting");
         //DebugBreak();
-        SetEvent(SHOULD_EXIT_EVENT);
+        set_event(EXIT_QUAKE_EVENT_NAME);
     }
     return BOOL(1);
 }
@@ -181,51 +188,117 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
 unsafe fn kill_window_process(windowh: HWND) {
     let mut process_id: u32 = 0;
     GetWindowThreadProcessId(windowh, &mut process_id);
-    let processh = OpenProcess(PROCESS_ALL_ACCESS, BOOL(0), process_id);
+    let processh = OpenProcess(PROCESS_TERMINATE, BOOL(0), process_id);
     TerminateProcess(processh, 1);
     CloseHandle(processh);
 }
 
-fn main() -> Result<()> {
+fn set_event(event_name: &str) {
+    let event_name: Vec<u16> = (event_name.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
+
     unsafe {
-        // https://github.com/rust-lang/rust/issues/7235#:~:text=Every%20string%20allocation%20in%20rust%20is%20null%20terminated,that%20are%20considered%20part%20of%20the%20utf-8%20data.
-        // strings are not null terminated?
-        // Local events are in \Sessions\1\BaseNamedObjects\
-        // str escape codes /u{7f}, \x41  has to be ascii
-        // https://github.com/rust-lang/rust/issues/18415 
-        let open_quake_event_name: Vec<u16> = "OpenQuake\0".encode_utf16().collect::<Vec<u16>>();
-        let hide_quake_event_name: Vec<u16> = "HideQuake\0".encode_utf16().collect::<Vec<u16>>();
+        let event = OpenEventW(THREAD_SYNCHRONIZE.0 | EVENT_MODIFY_STATE , BOOL(0), PCWSTR(event_name.as_ptr() as *const _));
+        assert!(!event.is_invalid());
+        SetEvent(event);
+        CloseHandle(event);
+    }
+}
 
-        SetLastError(NO_ERROR);
-
-        let mut open_quake_event = CreateEventW(
+fn quake_terminal_runner(command: &str) -> Result<()> {
+    unsafe {
+        let should_exit_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
-            PCWSTR(open_quake_event_name.as_ptr() as *const _)
+            std::ffi::OsString::from(EXIT_QUAKE_EVENT_NAME)
+        );
+
+        let run_event = CreateEventW(
+            std::ptr::null(),
+            BOOL(1),
+            BOOL(0),
+            std::ffi::OsString::from(RUN_QUAKE_EVENT_NAME)
+        );
+
+        let events = [run_event, should_exit_event];
+        const RUN_WAIT: u32 = WAIT_OBJECT_0;
+        const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 1;
+
+        loop {
+            match WaitForMultipleObjects(&events, BOOL(0), INFINITE) {
+                RUN_WAIT => {
+                    let pid = create_process(command.into()).unwrap();
+
+                    let processh = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
+                    WaitForSingleObject(processh, INFINITE);
+                    CloseHandle(processh);
+
+                    let hide_command = format!("{} --hide", std::env::current_exe().unwrap().to_str().unwrap());
+                    create_process(hide_command).unwrap();
+                    ResetEvent(run_event);
+                },
+                EXIT_WAIT => {
+                    break;
+                }
+                _ => {
+                    assert!(false, "Unexpected WaitForMultipleObjects failure");
+                }
+            }
+        }
+        return Ok(());
+    }
+}
+fn main() -> Result<()> {
+    let matches = Command::new("quakerun")
+        .arg(Arg::new("runner")
+            .short('r')
+            .long("runner")
+            .help("Run as server in quake terminal"))
+        .arg(Arg::new("open")
+            .short('o')
+            .long("open"))
+        .arg(Arg::new("hide")
+            .short('h')
+            .long("hide")
+            .help("Hide quake terminal"))
+        .arg(Arg::new("command")
+            .short('c')
+            .long("command")
+            .help("Command to run")
+            .value_name("COMMAND")
+            // .required(true)
+            .takes_value(true))
+        .get_matches();
+
+    if matches.occurrences_of("open") == 1 {
+        set_event(OPEN_QUAKE_EVENT_NAME);
+        return Ok(());
+    } else if matches.occurrences_of("hide") == 1 {
+        set_event(HIDE_QUAKE_EVENT_NAME);
+        return Ok(());
+    }
+
+    if matches.value_of("command").is_none() {
+        println!("Need --command to be specified.");
+        return Err(Error::from(ERROR_INVALID_PARAMETER));
+    }
+
+    if matches.occurrences_of("runner") == 1 {
+        return quake_terminal_runner(matches.value_of("command").unwrap());
+    }
+
+    unsafe {  
+        SetLastError(NO_ERROR);
+        let open_quake_event = CreateEventW(
+            std::ptr::null(),
+            BOOL(1),
+            BOOL(0),
+            std::ffi::OsString::from(OPEN_QUAKE_EVENT_NAME)
         );
 
         assert!(!open_quake_event.is_invalid());
 
-        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {
-            let option = std::env::args().skip(1).next();
-            match option.unwrap_or("".into()).as_str() {
-                "--open" => {
-                    open_quake_event = OpenEventW(THREAD_SYNCHRONIZE.0 | EVENT_MODIFY_STATE , BOOL(0), PCWSTR(open_quake_event_name.as_ptr() as *const _));
-                    assert!(!open_quake_event.is_invalid());
-                    SetEvent(open_quake_event);
-                    CloseHandle(open_quake_event);
-                },
-                "--hide" => {
-                    let hide_quake_event = OpenEventW(THREAD_SYNCHRONIZE.0 | EVENT_MODIFY_STATE, BOOL(0), PCWSTR(hide_quake_event_name.as_ptr() as *const _));
-                    assert!(!hide_quake_event.is_invalid());
-                    SetEvent(hide_quake_event);
-                    CloseHandle(hide_quake_event);
-                },
-                _ => {
-                }
-            };
-            
+        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
             return Ok(());
         }
 
@@ -233,17 +306,42 @@ fn main() -> Result<()> {
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
-            PCWSTR(hide_quake_event_name.as_ptr() as *const _)
+            std::ffi::OsString::from(HIDE_QUAKE_EVENT_NAME)
         );
 
-        SHOULD_EXIT_EVENT = CreateEventW(
+        assert!(!hide_quake_event.is_invalid());
+
+        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
+            return Ok(());
+        }
+
+        let should_exit_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
-            PCWSTR(std::ptr::null())
+            std::ffi::OsString::from(EXIT_QUAKE_EVENT_NAME)
+        );
+        
+        assert!(!should_exit_event.is_invalid());
+
+        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
+            return Ok(());
+        }
+
+        let run_quake_event = CreateEventW(
+            std::ptr::null(),
+            BOOL(1),
+            BOOL(0),
+            std::ffi::OsString::from(RUN_QUAKE_EVENT_NAME)
         );
 
-        let quake_window = create_initial_quake_window()?;
+        assert!(!run_quake_event.is_invalid());
+
+        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
+            return Ok(());
+        }
+
+        let quake_window = create_initial_quake_window(matches.value_of("command").unwrap())?;
         
         println!("Found quake window hwnd {:?}", quake_window);
 
@@ -256,94 +354,58 @@ fn main() -> Result<()> {
 
         SetConsoleCtrlHandler(Some(ctrl_handler), BOOL(1));
 
-        let quake_server_thread = std::thread::spawn(move || {
-            loop {
-                // match WaitForSingleObject(open_quake_event, INFINITE) {
-                //     WAIT_OBJECT_0 => {
-                //         let args: Vec<String> = std::env::args().skip(1).collect();
-                //         create_process("wt -w _quake ".to_string() + &args.join(" ")).unwrap();
-                //         ResetEvent(open_quake_event);
-                //     },
-                //     _ => {
-                //         assert!(false, "Unexpected WaitForSingleObject failure");
-                //     }
-                // }
-                let events = [open_quake_event, hide_quake_event, SHOULD_EXIT_EVENT];
-                const OPEN_WAIT: u32 = WAIT_OBJECT_0;
-                const HIDE_WAIT: u32 = WAIT_OBJECT_0 + 1;
-                const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 2;
-
-                match WaitForMultipleObjects(&events, BOOL(0), INFINITE) {
-                    OPEN_WAIT => {
-                        println!("WaitForMultipleObjects: OPEN_WAIT");
-
-                        if !IsWindowVisible(quake_window).as_bool() {
-                            let args: Vec<String> = std::env::args().skip(1).collect();
-                            let cmdline = "wt -w _quake nt cmd /c ".to_string() 
-                                + &args.join(" ")
-                                + &format!(" & {} --hide\0", std::env::current_exe().unwrap().to_str().unwrap());
-                            println!("Running {}", cmdline);
-                            create_process(cmdline).unwrap();
-                            ShowWindow(quake_window, SW_SHOW);
-                        } else {
-                            windows2::set_foreground_window_ex(quake_window);
-                        }
-                        ResetEvent(open_quake_event);
-                    },
-                    HIDE_WAIT => {
-                        println!("WaitForMultipleObjects: HIDE_WAIT");
-                        ShowWindow(quake_window, SW_HIDE);
-                        ResetEvent(hide_quake_event);
-                    },
-                    EXIT_WAIT => {
-                        break;
-                    }
-                    _ => {
-                        assert!(false, "Unexpected WaitForMultipleObjects failure");
-                    }
-                }
-            }
-        });
-
         let mut msg: MSG = std::mem::zeroed();
 
         loop {
-            let events = [SHOULD_EXIT_EVENT];
-            let exit_wait = WAIT_OBJECT_0;
+            let events =  [open_quake_event, hide_quake_event, should_exit_event];
+            const OPEN_WAIT: u32 = WAIT_OBJECT_0;
+            const HIDE_WAIT: u32 = WAIT_OBJECT_0 + 1;
+            const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 2;
             let message_wait = WAIT_OBJECT_0 + events.len() as u32;
             
-            let wait = MsgWaitForMultipleObjects(&events, BOOL(0), INFINITE, QS_ALLINPUT);
+            match MsgWaitForMultipleObjects(&events, BOOL(0), INFINITE, QS_ALLINPUT) {
+                OPEN_WAIT => {
+                    println!("WaitForMultipleObjects: OPEN_WAIT");
 
-            if wait == exit_wait {
-                break;
-            } else if wait == message_wait {
-                while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
-                    match msg.message {
-                        WM_HOTKEY => {
-                            // println!("Hotkey pressed!");
-                            SetEvent(open_quake_event);
-                        },
-                        _ => {
-                            TranslateMessage(&msg);
-                            DispatchMessageW(&msg);
+                    if !IsWindowVisible(quake_window).as_bool() {
+                        SetEvent(run_quake_event);
+                        ShowWindow(quake_window, SW_SHOW);
+                    }
+
+                    windows2::set_foreground_window_ex(quake_window);
+
+                    ResetEvent(open_quake_event);
+                },
+                HIDE_WAIT => {
+                    println!("WaitForMultipleObjects: HIDE_WAIT");
+                    ShowWindow(quake_window, SW_HIDE);
+                    ResetEvent(hide_quake_event);
+                },
+                EXIT_WAIT => {
+                    break;
+                }
+                wait => {
+                    assert!(wait == message_wait, "Unexpected WaitForMultipleObjects failure");
+                    while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
+                        match msg.message {
+                            WM_HOTKEY => {
+                                // println!("Hotkey pressed!");
+                                SetEvent(open_quake_event);
+                            },
+                            _ => {
+                                TranslateMessage(&msg);
+                                DispatchMessageW(&msg);
+                            }
                         }
                     }
                 }
-            } else {
-                print!("Unexpected MsgWaitForMultipleObjects failure");
-                break;
             }
-
         }
 
         UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
         
-        SetEvent(hide_quake_event);
-        quake_server_thread.join().expect("The thread being joined has panicked");
-
         CloseHandle(hide_quake_event);
         CloseHandle(open_quake_event);
-
 
         DestroyWindow(quake_window); // Doesn't work..
         kill_window_process(quake_window);
