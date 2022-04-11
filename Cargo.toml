@@ -25,5 +25,13 @@ features = [
     "Win32_System_LibraryLoader",
     "Win32_Security",
     "Win32_System_WindowsProgramming",
-    "Win32_System_Diagnostics_ToolHelp"
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_Graphics_Dwm",
+    "Win32_System_SystemServices",
+    "Win32_System_Console"
 ]
+
+[[bin]]
+name = "quakerun"
+path = "src/quakerun/main.rs"

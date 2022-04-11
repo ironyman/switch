@@ -27,7 +27,7 @@ use crate::listcontentprovider::{
     StartAppsProvider,
 };
 
-mod windows;
+mod windows2;
 mod listcontentprovider;
 
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
