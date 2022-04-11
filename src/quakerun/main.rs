@@ -26,6 +26,8 @@ mod windows2;
 const WAIT_QUAKE_SECONDS: u32 = 60;
 const QUAKE_HOT_KEY_ID: i32 = 1;
 
+static mut SHOULD_EXIT_EVENT: HANDLE = HANDLE(0);
+
 unsafe fn create_process(cmdline: String) -> Result<u32> {
     let mut cmdline = cmdline.encode_utf16().collect::<Vec<u16>>();
     let mut si: STARTUPINFOW = std::mem::zeroed();
@@ -171,9 +173,17 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
     if ctrltype == CTRL_C_EVENT {
         println!("Ctrl-c hit, exiting");
         //DebugBreak();
-        PostQuitMessage(0);
+        SetEvent(SHOULD_EXIT_EVENT);
     }
     return BOOL(1);
+}
+
+unsafe fn kill_window_process(windowh: HWND) {
+    let mut process_id: u32 = 0;
+    GetWindowThreadProcessId(windowh, &mut process_id);
+    let processh = OpenProcess(PROCESS_ALL_ACCESS, BOOL(0), process_id);
+    TerminateProcess(processh, 1);
+    CloseHandle(processh);
 }
 
 fn main() -> Result<()> {
@@ -226,7 +236,7 @@ fn main() -> Result<()> {
             PCWSTR(hide_quake_event_name.as_ptr() as *const _)
         );
 
-        let should_exit_event = CreateEventW(
+        SHOULD_EXIT_EVENT = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
@@ -258,7 +268,7 @@ fn main() -> Result<()> {
                 //         assert!(false, "Unexpected WaitForSingleObject failure");
                 //     }
                 // }
-                let events = [open_quake_event, hide_quake_event, should_exit_event];
+                let events = [open_quake_event, hide_quake_event, SHOULD_EXIT_EVENT];
                 const OPEN_WAIT: u32 = WAIT_OBJECT_0;
                 const HIDE_WAIT: u32 = WAIT_OBJECT_0 + 1;
                 const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 2;
@@ -297,15 +307,33 @@ fn main() -> Result<()> {
 
         let mut msg: MSG = std::mem::zeroed();
 
-        while GetMessageW(&mut msg, HWND(0), 0, 0).as_bool() {
-            println!("Got message {}", msg.message);
-            match msg.message {
-                WM_HOTKEY => {
-                    // println!("Hotkey pressed!");
-                    SetEvent(open_quake_event);
-                },
-                _ => {}
+        loop {
+            let events = [SHOULD_EXIT_EVENT];
+            let exit_wait = WAIT_OBJECT_0;
+            let message_wait = WAIT_OBJECT_0 + events.len() as u32;
+            
+            let wait = MsgWaitForMultipleObjects(&events, BOOL(0), INFINITE, QS_ALLINPUT);
+
+            if wait == exit_wait {
+                break;
+            } else if wait == message_wait {
+                while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
+                    match msg.message {
+                        WM_HOTKEY => {
+                            // println!("Hotkey pressed!");
+                            SetEvent(open_quake_event);
+                        },
+                        _ => {
+                            TranslateMessage(&msg);
+                            DispatchMessageW(&msg);
+                        }
+                    }
+                }
+            } else {
+                print!("Unexpected MsgWaitForMultipleObjects failure");
+                break;
             }
+
         }
 
         UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
@@ -315,7 +343,10 @@ fn main() -> Result<()> {
 
         CloseHandle(hide_quake_event);
         CloseHandle(open_quake_event);
-        DestroyWindow(quake_window);
+
+
+        DestroyWindow(quake_window); // Doesn't work..
+        kill_window_process(quake_window);
 
         Ok(())
     }
