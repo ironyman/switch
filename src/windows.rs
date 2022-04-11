@@ -744,14 +744,14 @@ fn getppid(pid: u32) -> u32 {
 
         let mut ppid: u32 = u32::MAX;
 
-        let snapshopt = CreateToolhelp32Snapshot( TH32CS_SNAPPROCESS, 0 );
-        if snapshopt == INVALID_HANDLE_VALUE {
+        let snapshot = CreateToolhelp32Snapshot( TH32CS_SNAPPROCESS, 0 );
+        if snapshot == INVALID_HANDLE_VALUE {
             return u32::MAX
         }
 
         pe32.dwSize = std::mem::size_of::<PROCESSENTRY32>() as u32;
-        if !Process32First(snapshopt, &mut pe32).as_bool() {
-            CloseHandle(snapshopt);
+        if !Process32First(snapshot, &mut pe32).as_bool() {
+            CloseHandle(snapshot);
             return u32::MAX
         }
 
@@ -760,12 +760,12 @@ fn getppid(pid: u32) -> u32 {
                 ppid = pe32.th32ParentProcessID;
                 break;
             }
-            if !Process32Next(snapshopt, &mut pe32).as_bool() {
+            if !Process32Next(snapshot, &mut pe32).as_bool() {
                 break;
             }
         }
 
-        CloseHandle(snapshopt);
+        CloseHandle(snapshot);
 
         return ppid;
     }
