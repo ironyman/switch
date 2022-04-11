@@ -9,6 +9,7 @@ edition = "2021"
 crossterm = { version = "0.22" }
 tui = { version = "0.17.0" }
 walkdir = "2"
+clap = "3.1.8"
 
 [dependencies.windows]
 version = "0.34.0"
