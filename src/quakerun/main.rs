@@ -24,6 +24,7 @@ mod windows2;
 
 const WAIT_QUAKE_SECONDS: u32 = 60;
 const QUAKE_HOT_KEY_ID: i32 = 1;
+const QUAKE_WIN_HOT_KEY_ID: i32 = 2;
 const OPEN_QUAKE_EVENT_NAME: &str = "OpenQuake";
 const HIDE_QUAKE_EVENT_NAME: &str = "HideQuake";
 const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
@@ -345,12 +346,17 @@ fn main() -> Result<()> {
             return Ok(());
         }
 
+        // Prevent this instance of quake terminal from registering default quake terminal hotkey.
+        RegisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_OEM_3.0 as u32);
+
         let quake_window = create_initial_quake_window(matches.value_of("command").unwrap())?;
         
         println!("Found quake window hwnd {:?}", quake_window);
 
         set_dwm_style(quake_window)?;
         ShowWindow(quake_window, SW_HIDE);
+
+        UnregisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID);
 
         // backtick
         // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
