@@ -4,8 +4,8 @@ if (Test-Path -Path "$PSScriptRoot\quakerun.exe") {
     $scriptRoot = $PSScriptRoot;
 } elseif (Test-Path -Path "$((pwd).path)\quakerun.exe") {
     $scriptRoot = (pwd).path;
-} elseif (Test-Path -Path "$PSScriptRoot\..\quakerun.exe") {
-    $scriptRoot = (Resolve-path -Path $PSScriptRoot\..).Path;
+} elseif (Test-Path -Path "$PSScriptRoot\..\target\debug\quakerun.exe") {
+    $scriptRoot = (Resolve-path -Path $PSScriptRoot\..\target\debug\).Path;
 }
 
 $taskAction = New-ScheduledTaskAction `
