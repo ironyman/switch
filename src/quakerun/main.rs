@@ -1,6 +1,4 @@
 // cargo run --bin quakerun -- -c C:\Users\changyl\Desktop\switch\target\debug\switch.exe
-// #![cfg_attr(my_feature_name_i_made_up, windows_subsystem = "windows")]
-
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
@@ -180,7 +178,7 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
     if ctrltype == CTRL_C_EVENT {
         println!("Ctrl-c hit, exiting");
         //DebugBreak();
-        set_event(EXIT_QUAKE_EVENT_NAME);
+        set_event_by_name(EXIT_QUAKE_EVENT_NAME);
     }
     return BOOL(1);
 }
@@ -193,7 +191,7 @@ unsafe fn kill_window_process(windowh: HWND) {
     CloseHandle(processh);
 }
 
-fn set_event(event_name: &str) {
+fn set_event_by_name(event_name: &str) {
     let event_name: Vec<u16> = (event_name.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
 
     unsafe {
@@ -233,8 +231,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                     WaitForSingleObject(processh, INFINITE);
                     CloseHandle(processh);
 
-                    let hide_command = format!("{} --hide", std::env::current_exe().unwrap().to_str().unwrap());
-                    create_process(hide_command).unwrap();
+                    set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                     ResetEvent(run_event);
                 },
                 EXIT_WAIT => {
@@ -248,6 +245,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
         return Ok(());
     }
 }
+
 fn main() -> Result<()> {
     let matches = Command::new("quakerun")
         .arg(Arg::new("runner")
@@ -271,10 +269,10 @@ fn main() -> Result<()> {
         .get_matches();
 
     if matches.occurrences_of("open") == 1 {
-        set_event(OPEN_QUAKE_EVENT_NAME);
+        set_event_by_name(OPEN_QUAKE_EVENT_NAME);
         return Ok(());
     } else if matches.occurrences_of("hide") == 1 {
-        set_event(HIDE_QUAKE_EVENT_NAME);
+        set_event_by_name(HIDE_QUAKE_EVENT_NAME);
         return Ok(());
     }
 
