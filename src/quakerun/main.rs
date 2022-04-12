@@ -1,4 +1,3 @@
-// cargo run --bin quakerun -- -c C:\Users\changyl\Desktop\switch\target\debug\switch.exe
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 #![allow(dead_code)]
@@ -38,7 +37,7 @@ unsafe fn create_process(cmdline: String) -> Result<u32> {
 
     let created = CreateProcessW(
         PCWSTR(std::ptr::null()),
-        PWSTR(cmdline.as_mut_ptr()  as *mut _),
+        PWSTR(cmdline.as_mut_ptr() as *mut _),
         std::ptr::null(),
         std::ptr::null(),
         BOOL(0),
@@ -60,7 +59,7 @@ unsafe fn create_process(cmdline: String) -> Result<u32> {
 
 unsafe fn create_initial_quake_window(command: &str) -> Result<HWND> {
     let cmdline = "wt -w _quake ".to_string() 
-        + &format!("{} --runner -c {}", std::env::current_exe().unwrap().to_str().unwrap(), command);
+        + &format!("{} --runner -c \"{}\"", std::env::current_exe().unwrap().to_str().unwrap(), command);
     println!("Running {}", cmdline);
 
     let pid = create_process(cmdline)?;
@@ -259,6 +258,10 @@ fn main() -> Result<()> {
             .short('h')
             .long("hide")
             .help("Hide quake terminal"))
+        .arg(Arg::new("stop")
+            .short('s')
+            .long("stop")
+            .help("Stop quake runner"))
         .arg(Arg::new("command")
             .short('c')
             .long("command")
@@ -273,6 +276,9 @@ fn main() -> Result<()> {
         return Ok(());
     } else if matches.occurrences_of("hide") == 1 {
         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+        return Ok(());
+    } else if matches.occurrences_of("stop") == 1 {
+        set_event_by_name(EXIT_QUAKE_EVENT_NAME);
         return Ok(());
     }
 
