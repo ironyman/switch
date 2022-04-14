@@ -66,9 +66,11 @@ use windows::{
         GWL_STYLE,
         GetWindow,
         GW_OWNER,
+        SW_SHOW,
     },
     Win32::UI::Input::KeyboardAndMouse::{
         SetFocus,
+        SetActiveWindow,
     },
     Win32::System::{ProcessStatus::K32GetProcessImageFileNameW, Threading::Sleep},
     Win32::System::LibraryLoader::{
@@ -733,6 +735,31 @@ fn set_foreground_window2(windowh: HWND) -> windows::core::Result<()> {
         SetFocus(windowh);
 
         AttachThreadInput(target_thread_id, foreground_thread_id, BOOL(0)).ok()?;
+
+        Ok(())
+    }
+}
+
+// This code is taken from IslandWindow::_globalActivateWindow from windows terminal.
+pub fn set_foreground_window_terminal(windowh: HWND) -> windows::core::Result<()> {
+    unsafe {
+        if !IsWindowVisible(windowh).as_bool() {
+            ShowWindow(windowh, SW_SHOW);
+        }
+        ShowWindow(windowh, SW_RESTORE);
+
+        let foreground = GetForegroundWindow();
+
+        let foreground_thread_id = GetWindowThreadProcessId(foreground, std::ptr::null_mut() as *mut u32);
+        let current_thread_id = GetCurrentThreadId();
+
+        AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(1)).ok()?;
+
+        BringWindowToTop(windowh);
+        ShowWindow(windowh, SW_SHOW);
+        SetActiveWindow(windowh);
+
+        AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(0)).ok()?;
 
         Ok(())
     }
