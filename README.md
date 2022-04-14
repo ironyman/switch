@@ -1,5 +1,10 @@
 # Setup
-
+Install rust
+```
+iwr https://win.rustup.rs/x86_64 -OutFile rustup‑init.exe
+rustup‑init.exe -y
+```
+Build this project
 ```
 cargo build
 md "$env:USERPROFILE\OneDrive - Microsoft\bin\switch"
