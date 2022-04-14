@@ -225,7 +225,15 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
         loop {
             match WaitForMultipleObjects(&events, BOOL(0), INFINITE) {
                 RUN_WAIT => {
-                    let pid = create_process(command.into()).unwrap();
+                    let pid = create_process(command.into());
+
+                    let pid = if pid.is_err() {
+                        set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                        ResetEvent(run_event);
+                        continue;
+                    } else {
+                        pid.unwrap();
+                    };
 
                     let processh = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
                     WaitForSingleObject(processh, INFINITE);
@@ -355,6 +363,7 @@ fn main() -> Result<()> {
 
         set_dwm_style(quake_window)?;
         ShowWindow(quake_window, SW_HIDE);
+        ShowWindow(quake_window, SW_MINIMIZE);
 
         UnregisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID);
 
@@ -381,14 +390,18 @@ fn main() -> Result<()> {
                         SetEvent(run_quake_event);
                         ShowWindow(quake_window, SW_SHOW);
                     }
-
-                    windows2::set_foreground_window_ex(quake_window);
+                    
+                    // windows2::set_foreground_window_ex(quake_window);
+                    
+                    let cmdline = "wt -w _quake fp --target 0".to_string();
+                    let pid = create_process(cmdline)?;
 
                     ResetEvent(open_quake_event);
                 },
                 HIDE_WAIT => {
                     println!("WaitForMultipleObjects: HIDE_WAIT");
                     ShowWindow(quake_window, SW_HIDE);
+                    ShowWindow(quake_window, SW_MINIMIZE);
                     ResetEvent(hide_quake_event);
                 },
                 EXIT_WAIT => {
@@ -400,7 +413,15 @@ fn main() -> Result<()> {
                         match msg.message {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
-                                SetEvent(open_quake_event);
+                                
+                                if !IsWindowVisible(quake_window).as_bool() {
+                                    SetEvent(run_quake_event);
+                                    ShowWindow(quake_window, SW_SHOW);
+                                }
+                                
+                                windows2::set_foreground_window_terminal(quake_window)?;
+                                // windows2::set_foreground_window_ex(quake_window);
+                                // SetEvent(open_quake_event);
                             },
                             _ => {
                                 TranslateMessage(&msg);
