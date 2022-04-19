@@ -82,6 +82,12 @@ unsafe fn wait_for_quake_window_start(process_id: u32) -> Result<HWND> {
         let hwnd = get_process_window(windows_terminal_pid).unwrap();
 
         if !hwnd.is_invalid() {
+            set_dwm_style(hwnd)?;
+            while IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
+                ShowWindow(hwnd, SW_HIDE);
+                ShowWindow(hwnd, SW_MINIMIZE);
+            }
+
             return Ok(hwnd);
         }
     }
@@ -230,9 +236,9 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                     let pid = if pid.is_err() {
                         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                         ResetEvent(run_event);
-                        continue;
+                        continue
                     } else {
-                        pid.unwrap();
+                        pid.unwrap()
                     };
 
                     let processh = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
@@ -358,13 +364,7 @@ fn main() -> Result<()> {
         RegisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_OEM_3.0 as u32);
 
         let quake_window = create_initial_quake_window(matches.value_of("command").unwrap())?;
-        
         println!("Found quake window hwnd {:?}", quake_window);
-
-        set_dwm_style(quake_window)?;
-        ShowWindow(quake_window, SW_HIDE);
-        ShowWindow(quake_window, SW_MINIMIZE);
-
         UnregisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID);
 
         // backtick
@@ -414,7 +414,8 @@ fn main() -> Result<()> {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
                                 
-                                if !IsWindowVisible(quake_window).as_bool() {
+                                // if !IsWindowVisible(quake_window).as_bool() {
+                                if WaitForSingleObject(run_quake_event, 0) != WAIT_OBJECT_0 {
                                     SetEvent(run_quake_event);
                                     ShowWindow(quake_window, SW_SHOW);
                                 }
