@@ -62,6 +62,7 @@ unsafe fn create_initial_quake_window(command: &str) -> Result<HWND> {
     let cmdline = "wt -w _quake ".to_string() 
         + &format!("{} --runner -c \"{}\"", std::env::current_exe().unwrap().to_str().unwrap(), command);
     println!("Running {}", cmdline);
+    log::trace!("[{}] Running {}", GetCurrentProcessId(), cmdline);
 
     let pid = create_process(cmdline)?;
     return Ok(wait_for_quake_window_start(pid)?);
@@ -78,14 +79,30 @@ unsafe fn wait_for_quake_window_start(process_id: u32) -> Result<HWND> {
         }
 
         println!("Found windowsterminal.exe pid: {}", windows_terminal_pid);
+        log::trace!("[{}] Found windowsterminal.exe pid: {}", GetCurrentProcessId(), windows_terminal_pid);
 
         let hwnd = get_process_window(windows_terminal_pid).unwrap();
 
         if !hwnd.is_invalid() {
             set_dwm_style(hwnd)?;
+
+            // Wait for window to appear.
+            while !IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
+                Sleep(5);
+            }
+
+            // Hide it
             while IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
-                ShowWindow(hwnd, SW_HIDE);
-                ShowWindow(hwnd, SW_MINIMIZE);
+                log::trace!("[{}] Hiding window windowsterminal", GetCurrentProcessId());
+
+                // ShowWindow(hwnd, SW_HIDE);
+                // ShowWindow fails sometimes...
+
+                if !SetWindowPos( hwnd, HWND(0), 0, 0, 0, 0, 
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_HIDEWINDOW).as_bool() {
+                    log::trace!("[{}] Hiding window failed {}", GetCurrentProcessId(), GetLastError().0);
+                }
+                // ShowWindow(hwnd, SW_MINIMIZE);
             }
 
             return Ok(hwnd);
@@ -273,6 +290,10 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    eventlog::register("switch").unwrap();
+    eventlog::init("switch", log::Level::Trace).unwrap();
+    log::trace!("[{}] Quakerun started", unsafe { GetCurrentProcessId() });
+
     let matches = Command::new("quakerun")
         .arg(Arg::new("runner")
             .short('r')
@@ -315,6 +336,7 @@ fn main() -> Result<()> {
     }
 
     if matches.occurrences_of("runner") == 1 {
+        log::trace!("[{}] Quakerun started as terminal runner", unsafe { GetCurrentProcessId() });
         return quake_terminal_runner(matches.value_of("command").unwrap());
     }
 
@@ -453,6 +475,8 @@ fn main() -> Result<()> {
 
         DestroyWindow(quake_window); // Doesn't work..
         kill_window_process(quake_window);
+
+        // eventlog::deregister("switch").unwrap();
 
         Ok(())
     }
