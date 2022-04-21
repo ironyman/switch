@@ -26,6 +26,10 @@ impl WindowProvider {
     }
 
     fn get_filtered_window_list(&self) -> Vec<&WindowInfo> {
+        if self.windows.len() <= 1 {
+            return vec![]
+        }
+        
         // Skip the first one which is the host of this app, wt or conhost.
         self.windows.iter().skip(1).filter(|&w| {
             if w.image_name.to_lowercase().contains(&self.filter) {
