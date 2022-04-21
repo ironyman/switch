@@ -134,9 +134,12 @@ impl Drop for WindowInfo {
 
 impl std::fmt::Display for WindowInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}: {} ({:#x}, {:#x}, {:#x})",
+        // write!(f, "{}: {} ({:#x}, {:#x}, {:#x})",
+        //     self.image_name, self.window_text,
+        //     self.process_id, self.style.0, self.ex_style.0)
+        write!(f, "{}: {} ({})",
             self.image_name, self.window_text,
-            self.process_id, self.style.0, self.ex_style.0)
+            self.process_id)
     }
 }
 
