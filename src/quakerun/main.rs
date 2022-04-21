@@ -177,6 +177,18 @@ unsafe fn set_dwm_style(window: HWND) -> Result<()> {
         &border_color  as *const _ as *const core::ffi::c_void, 
         std::mem::size_of_val(&border_color) as u32)?;
 
+    let disable_animiation = BOOL(1);
+    DwmSetWindowAttribute(
+        window, 
+        DWMWA_TRANSITIONS_FORCEDISABLED,
+        core::mem::transmute(&disable_animiation),
+        std::mem::size_of_val(&disable_animiation) as u32)?;
+
+    // Making the quake window a tool window will disable animation
+    // but it creates a minized window outside of taskbar.
+    // let style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+    // SetWindowLongPtrW(window, GWL_EXSTYLE, style | (WS_EX_TOOLWINDOW.0 as isize));
+    
     return Ok(());
 }
 
