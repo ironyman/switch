@@ -768,7 +768,7 @@ pub fn set_foreground_window_terminal(windowh: HWND) -> windows::core::Result<()
     }
 }
 
-fn getppid(pid: u32) -> u32 {
+pub fn getppid(pid: u32) -> u32 {
     unsafe {
         let mut pe32: PROCESSENTRY32 = std::mem::zeroed();
 
