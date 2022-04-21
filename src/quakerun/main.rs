@@ -91,19 +91,19 @@ unsafe fn wait_for_quake_window_start(process_id: u32) -> Result<HWND> {
                 Sleep(5);
             }
 
-            // Hide it
-            while IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
-                log::trace!("[{}] Hiding window windowsterminal", GetCurrentProcessId());
+            // // Hide it
+            // while IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
+            //     log::trace!("[{}] Hiding window windowsterminal", GetCurrentProcessId());
 
-                // ShowWindow(hwnd, SW_HIDE);
-                // ShowWindow fails sometimes...
+            //     // ShowWindow(hwnd, SW_HIDE);
+            //     // ShowWindow fails sometimes...
 
-                if !SetWindowPos( hwnd, HWND(0), 0, 0, 0, 0, 
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_HIDEWINDOW).as_bool() {
-                    log::trace!("[{}] Hiding window failed {}", GetCurrentProcessId(), GetLastError().0);
-                }
-                // ShowWindow(hwnd, SW_MINIMIZE);
-            }
+            //     if !SetWindowPos( hwnd, HWND(0), 0, 0, 0, 0, 
+            //         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_HIDEWINDOW).as_bool() {
+            //         log::trace!("[{}] Hiding window failed {}", GetCurrentProcessId(), GetLastError().0);
+            //     }
+            //     // ShowWindow(hwnd, SW_MINIMIZE);
+            // }
 
             return Ok(hwnd);
         }
@@ -237,6 +237,29 @@ fn set_event_by_name(event_name: &str) {
     }
 }
 
+unsafe fn configure_quake_window(process_id: u32) -> Result<()> {
+    // let start_time = std::time::SystemTime::now();
+    
+    let hwnd = get_process_window(process_id).unwrap();
+
+    if !hwnd.is_invalid() {
+        set_dwm_style(hwnd)?;
+        ShowWindow(hwnd, SW_HIDE);
+        // Hide it
+        // while IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
+        //     log::trace!("[{}] Hiding window windowsterminal", GetCurrentProcessId());
+
+        //     // ShowWindow(hwnd, SW_HIDE);
+        //     // ShowWindow fails sometimes...
+
+        //     if !SetWindowPos( hwnd, HWND(0), 0, 0, 0, 0, 
+        //         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_HIDEWINDOW).as_bool() {
+        //         log::trace!("[{}] Hiding window failed {}", GetCurrentProcessId(), GetLastError().0);
+        //     }
+        //     // ShowWindow(hwnd, SW_MINIMIZE);
+    }
+    return Ok(());
+}
 fn quake_terminal_runner(command: &str) -> Result<()> {
     unsafe {
         let should_exit_event = CreateEventW(
@@ -257,9 +280,13 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
         const RUN_WAIT: u32 = WAIT_OBJECT_0;
         const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 1;
 
+        let terminal_pid = windows2::getppid(GetCurrentProcessId());
+        configure_quake_window(terminal_pid)?;
+
         loop {
             match WaitForMultipleObjects(&events, BOOL(0), INFINITE) {
                 RUN_WAIT => {
+                    FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
                     let pid = create_process(command.into());
 
                     let pid = if pid.is_err() {
