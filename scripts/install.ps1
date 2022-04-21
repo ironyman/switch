@@ -14,6 +14,7 @@ $taskAction = New-ScheduledTaskAction `
 
 $taskTrigger = New-ScheduledTaskTrigger -atlogon -User $env:USERNAME
 
+# Required to set_foreground_window_terminal on high integrity level process windows.
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest
 
 Register-ScheduledTask `
