@@ -305,6 +305,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                     ResetEvent(run_event);
                 },
                 EXIT_WAIT => {
+                    log::trace!("[{}] Exiting", GetCurrentProcessId());
                     break;
                 }
                 _ => {
@@ -353,6 +354,7 @@ fn main() -> Result<()> {
         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
         return Ok(());
     } else if matches.occurrences_of("stop") == 1 {
+        log::trace!("[{}] Stopping quakerun", unsafe { GetCurrentProcessId() });
         set_event_by_name(EXIT_QUAKE_EVENT_NAME);
         return Ok(());
     }
@@ -422,7 +424,9 @@ fn main() -> Result<()> {
         }
 
         // Prevent this instance of quake terminal from registering default quake terminal hotkey.
-        RegisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_OEM_3.0 as u32);
+        if !RegisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
+            log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
+        }
 
         let quake_window = create_initial_quake_window(matches.value_of("command").unwrap())?;
         println!("Found quake window hwnd {:?}", quake_window);
@@ -430,7 +434,9 @@ fn main() -> Result<()> {
 
         // backtick
         // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
-        RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32);
+        if !RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
+            log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
+        }
 
         SetConsoleCtrlHandler(Some(ctrl_handler), BOOL(1));
 
@@ -466,6 +472,7 @@ fn main() -> Result<()> {
                     ResetEvent(hide_quake_event);
                 },
                 EXIT_WAIT => {
+                    log::trace!("[{}] Exiting", GetCurrentProcessId());
                     break;
                 }
                 wait => {
@@ -474,7 +481,8 @@ fn main() -> Result<()> {
                         match msg.message {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
-                                
+                                log::trace!("[{}] Hotkey pressed!", GetCurrentProcessId());
+
                                 // if !IsWindowVisible(quake_window).as_bool() {
                                 if WaitForSingleObject(run_quake_event, 0) != WAIT_OBJECT_0 {
                                     SetEvent(run_quake_event);
@@ -501,6 +509,8 @@ fn main() -> Result<()> {
         CloseHandle(open_quake_event);
 
         DestroyWindow(quake_window); // Doesn't work..
+        SendMessageW(quake_window, WM_CLOSE, WPARAM(0), LPARAM(0));
+        SendMessageW(quake_window, WM_QUIT, WPARAM(0), LPARAM(0));
         kill_window_process(quake_window);
 
         // eventlog::deregister("switch").unwrap();
