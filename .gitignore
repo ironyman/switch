@@ -1,1 +1,3 @@
 /target
+/choco/tools
+*.nupkg
