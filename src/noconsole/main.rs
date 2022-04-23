@@ -23,7 +23,7 @@ fn main() -> Result<()> {
             std::ptr::null(),
             std::ptr::null(),
             BOOL(0),
-            CREATE_NO_WINDOW,
+            CREATE_NO_WINDOW | DETACHED_PROCESS,
             std::ptr::null(),
             PCWSTR(std::ptr::null()),
             &si,
