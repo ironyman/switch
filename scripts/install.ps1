@@ -1,5 +1,11 @@
 $scriptRoot = "";
 
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    echo "Need to be admin"
+    break
+}
+
 if (Test-Path -Path "$PSScriptRoot\quakerun.exe") {
     $scriptRoot = $PSScriptRoot;
 } elseif (Test-Path -Path "$((pwd).path)\quakerun.exe") {
