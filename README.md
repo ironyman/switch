@@ -1,4 +1,11 @@
-# Setup
+# Install
+
+Easy install command with chocolatey (run as elevated admin)
+```
+cinst -y switch
+```
+
+# Build
 Install rust
 ```
 iwr https://win.rustup.rs/x86_64 -OutFile rustup‑init.exe
@@ -25,6 +32,21 @@ and stop with
 ```
 
 Open the switch UI with ``Alt+` ``
+
+# Package for chocolatey
+
+```
+cd choco
+.\update.ps1
+choco pack
+```
+
+And to install the packaged package
+
+```
+cinst -y switch -source (pwd).Path
+```
+
 
 # Uninstall
 
