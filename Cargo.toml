@@ -35,11 +35,3 @@ features = [
     "Win32_System_SystemServices",
     "Win32_System_Console",
 ]
-
-[[bin]]
-name = "quakerun"
-path = "src/quakerun/main.rs"
-
-[[bin]]
-name = "noconsole"
-path = "src/noconsole/main.rs"

@@ -1,9 +1,6 @@
-#![allow(unused_imports)]
-#![allow(unused_variables)]
 #![allow(dead_code)]
-
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{self, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -14,21 +11,17 @@ use std::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Corner, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Span, Spans},
+    text::{Spans},
     widgets::{Block, Borders, List, ListItem, ListState},
     Frame, Terminal,
 };
 
-use crate::listcontentprovider::{
+use switch::{
     ListContentProvider,
     WindowProvider,
     StartAppsProvider,
 };
-
-mod windows2;
-mod listcontentprovider;
 
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
 /// around `ListState`. Keeping track of the items state let us render the associated widget with its state
@@ -41,7 +34,6 @@ struct SearchableListApp {
     list_state: ListState,
     providers: Vec<Box<dyn ListContentProvider>>,
     selected_provider: usize,
-    // input_window: HWND,
 }
 
 impl<'a> SearchableListApp {
@@ -51,7 +43,6 @@ impl<'a> SearchableListApp {
             input_buffer: Vec::new(),
             providers,
             selected_provider: 0,
-            // input_window: create_window().unwrap(),
         }
     }
 
@@ -242,12 +233,6 @@ fn run_app<B: Backend>(
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
-    // Create two chunks with equal horizontal screen space
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(f.size());
-
     // Iterate through all elements in the `items` app and append some debug text to it.
     let items: Vec<ListItem> = app.current_provider()
         .get_filtered_list()
