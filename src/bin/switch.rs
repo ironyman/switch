@@ -142,6 +142,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     ]);
     
     app.list_next();
+    if app.current_provider().get_filtered_list().len() > 1 {
+        app.list_next();
+    }
 
     let res = run_app(&mut terminal, app, tick_rate);
 
