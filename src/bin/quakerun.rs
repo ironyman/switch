@@ -312,7 +312,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                         log::trace!("[{}] Exiting", GetCurrentProcessId());
                         break;
                     } else if h == open_quake_event {
-                        println!("WaitForMultipleObjects: OPEN_WAIT");
+                        log::trace!("WaitForMultipleObjects: OPEN_WAIT");
 
                         if !IsWindowVisible(quake_window).as_bool() {
                             SetEvent(run_quake_event);
@@ -326,7 +326,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
 
                         ResetEvent(open_quake_event);
                     } else if h == hide_quake_event {
-                        println!("WaitForMultipleObjects: HIDE_WAIT");
+                        log::trace!("WaitForMultipleObjects: HIDE_WAIT");
                         ShowWindow(quake_window, SW_HIDE);
                         ShowWindow(quake_window, SW_MINIMIZE);
                         ResetEvent(hide_quake_event);
