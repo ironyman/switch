@@ -10,7 +10,6 @@ crossterm = { version = "0.22" }
 tui = { version = "0.17.0" }
 walkdir = "2"
 clap = "3.1.8"
-eventlog = "0.1.0"
 log = "0.4"
 log4rs = "1.1.1"
 

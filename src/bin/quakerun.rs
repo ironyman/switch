@@ -381,8 +381,6 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    eventlog::register("switch").unwrap();
-    eventlog::init("switch", log::Level::Trace).unwrap();
     log::trace!("[{}] Quakerun started", unsafe { GetCurrentProcessId() });
 
     let matches = Command::new("quakerun")
@@ -458,8 +456,6 @@ fn main() -> Result<()> {
         UnregisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID);
 
         CloseHandle(should_exit_event);
-
-        // eventlog::deregister("switch").unwrap();
 
         Ok(())
     }
