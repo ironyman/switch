@@ -2,7 +2,6 @@ use windows::{
     core::*,
     Win32::Foundation::*,
     Win32::System::Threading::*,
-    Win32::System::WindowsProgramming::*,
     Win32::UI::Input::KeyboardAndMouse::*,
     Win32::UI::WindowsAndMessaging::*,
     Win32::Graphics::Dwm::*,
@@ -14,6 +13,7 @@ use windows::{
 use clap::{Arg, Command};
 use switch::windowprovider;
 use switch::setforegroundwindow::set_foreground_window_terminal;
+use switch::waitlist::{WaitList, WaitResult};
 
 const WAIT_QUAKE_SECONDS: u32 = 60;
 const QUAKE_HOT_KEY_ID: i32 = 1;
@@ -204,14 +204,14 @@ unsafe fn set_dwm_style(window: HWND) -> Result<()> {
 
 unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
     if ctrltype == CTRL_C_EVENT {
-        println!("Ctrl-c hit, exiting");
+        // println!("Ctrl-c hit, exiting");
         //DebugBreak();
-        set_event_by_name(EXIT_QUAKE_EVENT_NAME);
+        // set_event_by_name(EXIT_QUAKE_EVENT_NAME);
     }
     return BOOL(1);
 }
 
-unsafe fn kill_window_process(windowh: HWND) {
+unsafe fn _kill_window_process(windowh: HWND) {
     let mut process_id: u32 = 0;
     GetWindowThreadProcessId(windowh, &mut process_id);
     let processh = OpenProcess(PROCESS_TERMINATE, BOOL(0), process_id);
@@ -230,82 +230,155 @@ fn set_event_by_name(event_name: &str) {
     }
 }
 
-unsafe fn configure_quake_window(process_id: u32) -> Result<()> {
-    // let start_time = std::time::SystemTime::now();
-    
-    let hwnd = get_process_window(process_id).unwrap();
-
+unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
     if !hwnd.is_invalid() {
         set_dwm_style(hwnd)?;
         ShowWindow(hwnd, SW_HIDE);
-        // Hide it
-        // while IsWindowVisible(hwnd).as_bool() && start_time.elapsed().unwrap().as_secs() < WAIT_QUAKE_SECONDS as u64 {
-        //     log::trace!("[{}] Hiding window windowsterminal", GetCurrentProcessId());
-
-        //     // ShowWindow(hwnd, SW_HIDE);
-        //     // ShowWindow fails sometimes...
-
-        //     if !SetWindowPos( hwnd, HWND(0), 0, 0, 0, 0, 
-        //         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_HIDEWINDOW).as_bool() {
-        //         log::trace!("[{}] Hiding window failed {}", GetCurrentProcessId(), GetLastError().0);
-        //     }
-        //     // ShowWindow(hwnd, SW_MINIMIZE);
     }
     return Ok(());
 }
+
 fn quake_terminal_runner(command: &str) -> Result<()> {
     unsafe {
+        let mut waits = WaitList::new();
+        let mut current_running_process = HANDLE(0);
+
+        SetConsoleCtrlHandler(Some(ctrl_handler), BOOL(1));
+
+        let run_quake_event = CreateEventW(
+            std::ptr::null(),
+            BOOL(1),
+            BOOL(0),
+            std::ffi::OsString::from(RUN_QUAKE_EVENT_NAME)
+        );
+        assert!(waits.add(run_quake_event));
+
         let should_exit_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
             std::ffi::OsString::from(EXIT_QUAKE_EVENT_NAME)
         );
+        assert!(waits.add(should_exit_event));
+        assert!(!should_exit_event.is_invalid());
 
-        let run_event = CreateEventW(
+        let open_quake_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
-            std::ffi::OsString::from(RUN_QUAKE_EVENT_NAME)
+            std::ffi::OsString::from(OPEN_QUAKE_EVENT_NAME)
         );
+        assert!(waits.add(open_quake_event));
 
-        let events = [run_event, should_exit_event];
-        const RUN_WAIT: u32 = WAIT_OBJECT_0;
-        const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 1;
+        let hide_quake_event = CreateEventW(
+            std::ptr::null(),
+            BOOL(1),
+            BOOL(0),
+            std::ffi::OsString::from(HIDE_QUAKE_EVENT_NAME)
+        );
+        assert!(waits.add(hide_quake_event));
 
         let terminal_pid = windowprovider::getppid(GetCurrentProcessId());
-        configure_quake_window(terminal_pid)?;
+        let quake_window = get_process_window(terminal_pid)?;
+        configure_quake_window(quake_window)?;
+        
+        // backtick
+        // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
+        if !RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
+            log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
+        }
 
         loop {
-            match WaitForMultipleObjects(&events, BOOL(0), INFINITE) {
-                RUN_WAIT => {
-                    FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
-                    let pid = create_process(command.into());
+            let mut msg: MSG = std::mem::zeroed();
 
-                    let pid = if pid.is_err() {
+            match waits.wait() {
+                WaitResult::Handle(h) => {
+                    if h == run_quake_event {
+                        FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+                        let pid = create_process(command.into());
+    
+                        let pid = if pid.is_err() {
+                            set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                            ResetEvent(run_quake_event);
+                            continue
+                        } else {
+                            pid.unwrap()
+                        };
+    
+                        current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
+                        waits.add(current_running_process);
+                        ResetEvent(run_quake_event);
+                    } else if h == should_exit_event {
+                        log::trace!("[{}] Exiting", GetCurrentProcessId());
+                        break;
+                    } else if h == open_quake_event {
+                        println!("WaitForMultipleObjects: OPEN_WAIT");
+
+                        if !IsWindowVisible(quake_window).as_bool() {
+                            SetEvent(run_quake_event);
+                            ShowWindow(quake_window, SW_SHOW);
+                        }
+                        
+                        // windows2::set_foreground_window_ex(quake_window);
+                        
+                        let cmdline = "wt -w _quake fp --target 0".to_string();
+                        create_process(cmdline)?;
+
+                        ResetEvent(open_quake_event);
+                    } else if h == hide_quake_event {
+                        println!("WaitForMultipleObjects: HIDE_WAIT");
+                        ShowWindow(quake_window, SW_HIDE);
+                        ShowWindow(quake_window, SW_MINIMIZE);
+                        ResetEvent(hide_quake_event);
+                    } else if h == current_running_process {
+                        waits.remove(current_running_process);
+                        current_running_process = HANDLE(0);
                         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                        ResetEvent(run_event);
-                        continue
                     } else {
-                        pid.unwrap()
-                    };
-
-                    let processh = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
-                    WaitForSingleObject(processh, INFINITE);
-                    CloseHandle(processh);
-
-                    set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                    ResetEvent(run_event);
+                        assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
+                    }
                 },
-                EXIT_WAIT => {
-                    log::trace!("[{}] Exiting", GetCurrentProcessId());
-                    break;
-                }
-                _ => {
-                    assert!(false, "Unexpected WaitForMultipleObjects failure");
+                WaitResult::Message => {
+                    while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
+                        match msg.message {
+                            WM_HOTKEY => {
+                                // println!("Hotkey pressed!");
+                                log::trace!("[{}] Hotkey pressed!", GetCurrentProcessId());
+
+                                // if !IsWindowVisible(quake_window).as_bool() {
+                                if WaitForSingleObject(run_quake_event, 0) != WAIT_OBJECT_0 && current_running_process.is_invalid() {
+                                    SetEvent(run_quake_event);
+                                    ShowWindow(quake_window, SW_SHOW);
+                                }
+                                
+                                set_foreground_window_terminal(quake_window)?;
+                                // windows2::set_foreground_window_ex(quake_window);
+                            },
+                            _ => {
+                                TranslateMessage(&msg);
+                                DispatchMessageW(&msg);
+                            }
+                        }
+                    }
+                },
+                WaitResult::Error(err) => {
+                    assert!(false, "Unexpected MsgWaitForMultipleObjects error: {}.", err);
                 }
             }
         }
+
+        UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
+
+        CloseHandle(should_exit_event);
+        CloseHandle(run_quake_event);
+        CloseHandle(open_quake_event);
+        CloseHandle(hide_quake_event);
+        
+        DestroyWindow(quake_window); // Doesn't work..
+        SendMessageW(quake_window, WM_CLOSE, WPARAM(0), LPARAM(0));
+        SendMessageW(quake_window, WM_QUIT, WPARAM(0), LPARAM(0));
+        // kill_window_process(quake_window);
+
         return Ok(());
     }
 }
@@ -364,31 +437,6 @@ fn main() -> Result<()> {
 
     unsafe {  
         SetLastError(NO_ERROR);
-        let open_quake_event = CreateEventW(
-            std::ptr::null(),
-            BOOL(1),
-            BOOL(0),
-            std::ffi::OsString::from(OPEN_QUAKE_EVENT_NAME)
-        );
-
-        assert!(!open_quake_event.is_invalid());
-
-        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
-            return Ok(());
-        }
-
-        let hide_quake_event = CreateEventW(
-            std::ptr::null(),
-            BOOL(1),
-            BOOL(0),
-            std::ffi::OsString::from(HIDE_QUAKE_EVENT_NAME)
-        );
-
-        assert!(!hide_quake_event.is_invalid());
-
-        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
-            return Ok(());
-        }
 
         let should_exit_event = CreateEventW(
             std::ptr::null(),
@@ -403,19 +451,6 @@ fn main() -> Result<()> {
             return Ok(());
         }
 
-        let run_quake_event = CreateEventW(
-            std::ptr::null(),
-            BOOL(1),
-            BOOL(0),
-            std::ffi::OsString::from(RUN_QUAKE_EVENT_NAME)
-        );
-
-        assert!(!run_quake_event.is_invalid());
-
-        if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
-            return Ok(());
-        }
-
         // Prevent this instance of quake terminal from registering default quake terminal hotkey.
         if !RegisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
             log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
@@ -425,86 +460,7 @@ fn main() -> Result<()> {
         println!("Found quake window hwnd {:?}", quake_window);
         UnregisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID);
 
-        // backtick
-        // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
-        if !RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
-            log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
-        }
-
-        SetConsoleCtrlHandler(Some(ctrl_handler), BOOL(1));
-
-        let mut msg: MSG = std::mem::zeroed();
-
-        loop {
-            let events =  [open_quake_event, hide_quake_event, should_exit_event];
-            const OPEN_WAIT: u32 = WAIT_OBJECT_0;
-            const HIDE_WAIT: u32 = WAIT_OBJECT_0 + 1;
-            const EXIT_WAIT: u32 = WAIT_OBJECT_0 + 2;
-            let message_wait = WAIT_OBJECT_0 + events.len() as u32;
-            
-            match MsgWaitForMultipleObjects(&events, BOOL(0), INFINITE, QS_ALLINPUT) {
-                OPEN_WAIT => {
-                    println!("WaitForMultipleObjects: OPEN_WAIT");
-
-                    if !IsWindowVisible(quake_window).as_bool() {
-                        SetEvent(run_quake_event);
-                        ShowWindow(quake_window, SW_SHOW);
-                    }
-                    
-                    // windows2::set_foreground_window_ex(quake_window);
-                    
-                    let cmdline = "wt -w _quake fp --target 0".to_string();
-                    create_process(cmdline)?;
-
-                    ResetEvent(open_quake_event);
-                },
-                HIDE_WAIT => {
-                    println!("WaitForMultipleObjects: HIDE_WAIT");
-                    ShowWindow(quake_window, SW_HIDE);
-                    ShowWindow(quake_window, SW_MINIMIZE);
-                    ResetEvent(hide_quake_event);
-                },
-                EXIT_WAIT => {
-                    log::trace!("[{}] Exiting", GetCurrentProcessId());
-                    break;
-                }
-                wait => {
-                    assert!(wait == message_wait, "Unexpected WaitForMultipleObjects failure");
-                    while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
-                        match msg.message {
-                            WM_HOTKEY => {
-                                // println!("Hotkey pressed!");
-                                log::trace!("[{}] Hotkey pressed!", GetCurrentProcessId());
-
-                                // if !IsWindowVisible(quake_window).as_bool() {
-                                if WaitForSingleObject(run_quake_event, 0) != WAIT_OBJECT_0 {
-                                    SetEvent(run_quake_event);
-                                    ShowWindow(quake_window, SW_SHOW);
-                                }
-                                
-                                set_foreground_window_terminal(quake_window)?;
-                                // windows2::set_foreground_window_ex(quake_window);
-                                // SetEvent(open_quake_event);
-                            },
-                            _ => {
-                                TranslateMessage(&msg);
-                                DispatchMessageW(&msg);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
-        
-        CloseHandle(hide_quake_event);
-        CloseHandle(open_quake_event);
-
-        DestroyWindow(quake_window); // Doesn't work..
-        SendMessageW(quake_window, WM_CLOSE, WPARAM(0), LPARAM(0));
-        SendMessageW(quake_window, WM_QUIT, WPARAM(0), LPARAM(0));
-        kill_window_process(quake_window);
+        CloseHandle(should_exit_event);
 
         // eventlog::deregister("switch").unwrap();
 
