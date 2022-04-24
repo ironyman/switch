@@ -7,7 +7,6 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 }
 
 Unregister-ScheduledTask -TaskName QuakeRun -Confirm:$False -ea silentlycontinue
-restart-service eventlog
 
 if (Test-Path -Path "$PSScriptRoot\quakerun.exe") {
     if (get-process quakerun -ea silentlycontinue) {
