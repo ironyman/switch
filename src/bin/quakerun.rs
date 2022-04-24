@@ -307,6 +307,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                         current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
                         waits.add(current_running_process);
                         ResetEvent(run_quake_event);
+                        set_foreground_window_terminal(quake_window)?;
                     } else if h == should_exit_event {
                         log::trace!("[{}] Exiting", GetCurrentProcessId());
                         break;
@@ -344,14 +345,11 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                                 // println!("Hotkey pressed!");
                                 log::trace!("[{}] Hotkey pressed!", GetCurrentProcessId());
 
-                                // if !IsWindowVisible(quake_window).as_bool() {
-                                if WaitForSingleObject(run_quake_event, 0) != WAIT_OBJECT_0 && current_running_process.is_invalid() {
+                                if current_running_process.is_invalid() {
                                     SetEvent(run_quake_event);
-                                    ShowWindow(quake_window, SW_SHOW);
+                                } else {
+                                    set_foreground_window_terminal(quake_window)?;
                                 }
-                                
-                                set_foreground_window_terminal(quake_window)?;
-                                // windows2::set_foreground_window_ex(quake_window);
                             },
                             _ => {
                                 TranslateMessage(&msg);

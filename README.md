@@ -19,6 +19,19 @@ copy scripts\*,target\debug\*.exe "$env:USERPROFILE\OneDrive - Microsoft\bin\swi
 & "$env:USERPROFILE\OneDrive - Microsoft\bin\switch\install.ps1"
 ```
 
+Alternatively for dev inner loop,
+```
+cargo build
+copy scripts\* targets\debug\
+.\targets\debug\install.ps1
+```
+To build and restart
+```
+cargo build
+.\targets\debug\quakerun.exe -s
+start-scheduledtask quakerun
+```
+
 # Run
 It should run at logon, or run manually with
 
