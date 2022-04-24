@@ -28,7 +28,6 @@ use windows::{
         OpenProcess,
         PROCESS_QUERY_LIMITED_INFORMATION,
     },
-    Win32::System::Threading::GetCurrentProcessId, 
     Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot,
         Process32First,
@@ -70,21 +69,7 @@ impl std::fmt::Display for WindowInfo {
 
 // https://github.com/microsoft/windows-rs/blob/master/crates/samples/enum_windows/Cargo.toml
 extern "system" fn enum_window_proc(windowh: HWND, lparam: LPARAM) -> BOOL {
-    static mut CONHOST_PID: u32 = 0;
-
     unsafe {
-        if CONHOST_PID != 0 {
-            CONHOST_PID = GetCurrentProcessId();
-            loop {
-                let parent = getppid(CONHOST_PID);
-                if parent != u32::MAX {
-                    CONHOST_PID = parent;
-                } else {
-                    break;
-                }
-            }
-        }
-        
         // https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/Foundation/struct.BOOL.html#impl-Into%3CU%3E
         if !IsWindowVisible(windowh).as_bool() {
             return true.into()
@@ -118,10 +103,6 @@ extern "system" fn enum_window_proc(windowh: HWND, lparam: LPARAM) -> BOOL {
         let mut process_id: u32 = 0;
         GetWindowThreadProcessId(windowh, &mut process_id);
         
-        if process_id == CONHOST_PID {
-            return true.into()
-        }
-
         let processh = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL(0), process_id);
 
         let mut image_name: [u16; 512] = [0; 512];
