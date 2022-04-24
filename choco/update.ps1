@@ -9,7 +9,6 @@ $files = (
 )
 $unshim = (
     "$PSScriptRoot\tools\noconsole.exe.ignore",
-    "$PSScriptRoot\tools\quakerun.exe.ignore",
     "$PSScriptRoot\tools\switch.exe.ignore"
 )
 
