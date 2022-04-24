@@ -44,11 +44,11 @@ Alternatively for dev inner loop,
 ```
 cargo build
 copy scripts\* targets\debug\
-.\targets\debug\install.ps1
+.\target\debug\install.ps1
 ```
 To rebuild and restart
 ```
-.\targets\debug\quakerun.exe -s
+.\target\debug\quakerun.exe -s
 cargo build
 start-scheduledtask quakerun
 ```
