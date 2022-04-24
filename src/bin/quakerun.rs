@@ -135,7 +135,6 @@ unsafe fn get_child_pid(pid: u32) -> u32 {
 
     return child_pid;
 }
-
 struct EnumWindowData {
     hwnd: HWND,
     process_id: u32,
