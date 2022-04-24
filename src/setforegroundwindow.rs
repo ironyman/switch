@@ -515,9 +515,13 @@ pub fn set_foreground_window_terminal(windowh: HWND) -> windows::core::Result<()
     unsafe {
         if !IsWindowVisible(windowh).as_bool() {
             ShowWindow(windowh, SW_SHOW);
+			ShowWindow(windowh, SW_RESTORE);
         }
-        ShowWindow(windowh, SW_RESTORE);
 
+		if IsIconic(windowh).as_bool() {
+			ShowWindow(windowh, SW_RESTORE);
+		}
+		
         let foreground = GetForegroundWindow();
 
         let foreground_thread_id = GetWindowThreadProcessId(foreground, std::ptr::null_mut() as *mut u32);
