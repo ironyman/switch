@@ -5,4 +5,4 @@ $psFile = Join-Path "$(Split-Path -parent $MyInvocation.MyCommand.Definition)" '
 # do not use Start-ChocolateyProcessAsAdmin because it outputs a scary red wall of text.
 # Start-ChocolateyProcessAsAdmin "& `'$psFile`'" *> $null
 & "$psFile"
-Start-ScheduledTask QuakeRun
+echo "`nThe program is scheduled to start on logon, or start manually with`n  Start-ScheduledTask QuakeRun`n"
