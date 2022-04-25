@@ -17,7 +17,7 @@
      <licenseUrl>https://github.com/ironyman/switch/blob/master/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <projectSourceUrl>https://github.com/ironyman/switch</projectSourceUrl>
-    <docsUrl>TBD</docsUrl>
+    <docsUrl>https://github.com/ironyman/switch</docsUrl>
     <bugTrackerUrl>https://github.com/ironyman/switch</bugTrackerUrl>
     <tags>switch task switcher</tags>
     <summary>Switch tasks!</summary>
