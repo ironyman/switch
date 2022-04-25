@@ -35,5 +35,5 @@ Register-ScheduledTask `
     -Principal $principal `
     -Setting $setting `
     -Description "Start switch.exe with quakerun.exe at logon" `
-    -force
+    -force | out-null
 
