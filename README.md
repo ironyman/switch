@@ -43,7 +43,7 @@ c:\switch\install.ps1
 Alternatively for dev inner loop,
 ```
 cargo build
-copy scripts\* targets\debug\
+copy .\scripts\* .\target\debug\
 .\target\debug\install.ps1
 ```
 To rebuild and restart
