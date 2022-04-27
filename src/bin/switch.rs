@@ -24,6 +24,8 @@ use switch::{
     console,
 };
 
+const INPUT_PROMPT: &str = "> ";
+
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
 /// around `ListState`. Keeping track of the items state let us render the associated widget with its state
 /// and have access to features such as natural scrolling.
@@ -35,15 +37,19 @@ struct SearchableListApp {
     list_state: ListState,
     providers: Vec<Box<dyn ListContentProvider>>,
     selected_provider: usize,
+    screen_width: u16,
+    screen_height: u16,
 }
 
 impl<'a> SearchableListApp {
-    fn new(providers: Vec<Box<dyn ListContentProvider>>) -> SearchableListApp {
+    fn new(providers: Vec<Box<dyn ListContentProvider>>, screen_width: u16, screen_height: u16) -> SearchableListApp {
         SearchableListApp {
             list_state: ListState::default(),
             input_buffer: Vec::new(),
             providers,
             selected_provider: 0,
+            screen_width,
+            screen_height,
         }
     }
 
@@ -144,12 +150,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // terminal.show_cursor()?;
+
+    let screen_width = terminal.get_frame().size().width;
+    let screen_height = terminal.get_frame().size().height;
+
     // create app and run it
     let tick_rate = Duration::from_millis(250);
     let mut app = SearchableListApp::new(vec![
         WindowProvider::new(),
         StartAppsProvider::new(),
-    ]);
+    ], screen_width, screen_height);
     
     app.list_next();
     if app.current_provider().get_filtered_list().len() > 1 {
@@ -158,7 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let res = run_app(&mut terminal, app, tick_rate);
 
-    // Clear terminal and restore to cooked mode.
+    // Clear terminal and restore to original mode.
     unsafe {
         console::clear_console()?;
     }
@@ -187,11 +198,12 @@ fn run_app<B: Backend>(
     loop {
         // This causes flicker. Figure out how to double buffer.
         // terminal.clear()?;
-        terminal.draw(|f| ui(f, &mut app))?;
 
+        terminal.draw(|f| ui(f, &mut app))?;
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
             .unwrap_or_else(|| Duration::from_secs(0));
+        
         if crossterm::event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key) => {
@@ -243,7 +255,9 @@ fn run_app<B: Backend>(
                         _ => {}
                     }
                 },
-                Event::Resize(_width, _height) => {
+                Event::Resize(width, height) => {
+                    app.screen_width = width;
+                    app.screen_height = height;
                     unsafe {
                         console::clear_console()?;
                     }
@@ -278,15 +292,25 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
         })
         .collect();
 
+    let rendered_line_buffer = INPUT_PROMPT.to_string() + &app.input_buffer.iter().cloned().collect::<String>();
+    let rendered_line_buffer = if rendered_line_buffer.len() > app.screen_width as usize {
+        rendered_line_buffer[0..app.screen_width as usize].to_string()
+    } else {
+        rendered_line_buffer
+    };
+
+    let cursor_col = INPUT_PROMPT.len() + app.input_buffer.len();
+    f.set_cursor(cursor_col as u16, 0);
+
     // Create a List from all list items and highlight the currently selected one
     let items = List::new(items)
-        .block(Block::default().borders(Borders::NONE).title(Spans::from("> ".to_string() + &app.input_buffer.iter().cloned().collect::<String>())))
+        .block(Block::default().borders(Borders::NONE).title(Spans::from(rendered_line_buffer)))
         .highlight_style(
             Style::default()
                 .bg(Color::LightGreen)
                 .add_modifier(Modifier::BOLD),
         );
-
+    
     // We can now render the item list
     //f.render_stateful_widget(items, chunks[0], &mut app.list.state);
     f.render_stateful_widget(items, f.size(), &mut app.list_state);
