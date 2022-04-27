@@ -23,7 +23,7 @@ use windows::{
         WS_CHILD,
         GWL_STYLE,
     },
-    Win32::System::ProcessStatus::K32GetProcessImageFileNameW,
+    Win32::System::{ProcessStatus::K32GetProcessImageFileNameW, Threading::GetCurrentProcessId},
     Win32::System::Threading::{
         OpenProcess,
         PROCESS_QUERY_LIMITED_INFORMATION,
@@ -173,13 +173,17 @@ pub fn getppid(pid: u32) -> u32 {
 pub struct WindowProvider {
     windows: Vec<WindowInfo>,
     filter: String,
+    terminal_host_pid: u32,
 }
 
 impl WindowProvider {
     pub fn new() -> Box<Self> {
+        let quakerun_pid = getppid(unsafe { GetCurrentProcessId() });
+        let terminal_host_pid = getppid(quakerun_pid);
         Box::new(WindowProvider {
             windows: enum_window().unwrap(),
             filter: "".into(),
+            terminal_host_pid,
         })
     }
 
@@ -188,8 +192,11 @@ impl WindowProvider {
             return vec![]
         }
         
-        // Skip the first one which is the host of this app, wt or conhost.
-        self.windows.iter().skip(1).filter(|&w| {
+        self.windows.iter().filter(|&w| {
+            if w.process_id == self.terminal_host_pid {
+                return false;
+            }
+
             if w.image_name.to_lowercase().contains(&self.filter) {
                 return true;
             }
