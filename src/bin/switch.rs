@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crossterm::{
-    event::{self, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{self, EnableMouseCapture, Event, KeyCode, KeyModifiers, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -21,6 +21,7 @@ use switch::{
     ListContentProvider,
     WindowProvider,
     StartAppsProvider,
+    console,
 };
 
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
@@ -126,11 +127,20 @@ impl Drop for SearchableListApp {
 fn main() -> Result<(), Box<dyn Error>> {
     // setup terminal
     enable_raw_mode()?;
+
     let mut stdout = io::stdout();
     execute!(stdout,
         EnterAlternateScreen, 
-        EnableMouseCapture
+        EnableMouseCapture,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
     )?;
+    // If window is resized then redrawing will draw more stuff and cause terminal to scroll.
+    // Disable scrolling by clearing terminal buffer. By the way crossterm::terminal::Clear
+    // So we do it ourselves.
+    unsafe {
+        console::clear_console()?;
+    }
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -148,14 +158,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let res = run_app(&mut terminal, app, tick_rate);
 
-    // restore terminal
+    // Clear terminal and restore to cooked mode.
+    unsafe {
+        console::clear_console()?;
+    }
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        // DisableMouseCapture
+        DisableMouseCapture
     )?;
-    terminal.show_cursor()?;
+    // terminal.show_cursor()?;
 
     if let Err(err) = res {
         println!("{:?}", err)
@@ -172,59 +185,71 @@ fn run_app<B: Backend>(
     let mut last_tick = Instant::now();
 
     loop {
+        // This causes flicker. Figure out how to double buffer.
+        // terminal.clear()?;
         terminal.draw(|f| ui(f, &mut app))?;
 
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
             .unwrap_or_else(|| Duration::from_secs(0));
         if crossterm::event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char(c) => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
+            match event::read()? {
+                Event::Key(key) => {
+                    match key.code {
+                        KeyCode::Char(c) => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
+                                return Ok(())
+                            }
+                            app.input_buffer.push(c);
+                            app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                            app.list_state.select(Some(0));
+                        },
+                        KeyCode::Left => app.list_unselect(),
+                        KeyCode::Down => app.list_next(),
+                        KeyCode::Up => app.list_previous(),
+                        KeyCode::Backspace => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
+                                app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
+                            } else {
+                                app.input_buffer.pop();
+                            }
+                            app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                            app.list_state.select(Some(0));
+                        },
+                        KeyCode::Esc => {
+                            return Ok(())
+                        },
+                        KeyCode::Enter => {
+                            let selected = app.list_state.selected().unwrap_or(0);
+
+                            // unsafe { 
+                                // There are rules for who can set foreground window, and if you fail
+                                // it just flashes that window in task bar and nothing else
+                                // SetForegroundWindow(app.list[selected].windowh);
+
+                                
+                                // This brings the other window to foreground, but doesn't focus it.
+                                // SetWindowPos(app.list[selected].windowh, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                                // SetWindowPos(app.list[selected].windowh, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
+                            // }
+                            
+                            //set_foreground_window_in_foreground(app.list[selected].windowh);
+                            // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
+                            // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
+                            app.current_provider().activate(selected);
                             return Ok(())
                         }
-                        app.input_buffer.push(c);
-                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
-                        app.list_state.select(Some(0));
-                    },
-                    KeyCode::Left => app.list_unselect(),
-                    KeyCode::Down => app.list_next(),
-                    KeyCode::Up => app.list_previous(),
-                    KeyCode::Backspace => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
-                            app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
-                        } else {
-                            app.input_buffer.pop();
-                        }
-                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
-                        app.list_state.select(Some(0));
-                    },
-                    KeyCode::Esc => {
-                        return Ok(())
-                    },
-                    KeyCode::Enter => {
-                        let selected = app.list_state.selected().unwrap_or(0);
-
-                        // unsafe { 
-                            // There are rules for who can set foreground window, and if you fail
-                            // it just flashes that window in task bar and nothing else
-                            // SetForegroundWindow(app.list[selected].windowh);
-
-                            
-                            // This brings the other window to foreground, but doesn't focus it.
-                            // SetWindowPos(app.list[selected].windowh, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-                            // SetWindowPos(app.list[selected].windowh, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
-                        // }
-                        
-                        //set_foreground_window_in_foreground(app.list[selected].windowh);
-                        // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
-                        // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
-                        app.current_provider().activate(selected);
-                        return Ok(())
+                        _ => {}
                     }
-                    _ => {}
+                },
+                Event::Resize(_width, _height) => {
+                    unsafe {
+                        console::clear_console()?;
+                    }
+                },
+                _ => {
+
                 }
             }
         }

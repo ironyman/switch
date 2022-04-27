@@ -9,3 +9,4 @@ mod startappsprovider;
 pub mod windowprovider;
 mod listcontentprovider;
 pub mod waitlist;
+pub mod console;

@@ -293,7 +293,8 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
             match waits.wait() {
                 WaitResult::Handle(h) => {
                     if h == run_quake_event {
-                        FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));
+                        switch::console::clear_console()?;
+
                         let pid = create_process(command.into());
     
                         let pid = if pid.is_err() {
@@ -382,7 +383,6 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
 
 fn main() -> Result<()> {
     log::trace!("[{}] Quakerun started", unsafe { GetCurrentProcessId() });
-
     let matches = Command::new("quakerun")
         .arg(Arg::new("runner")
             .short('r')
