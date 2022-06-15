@@ -126,7 +126,7 @@ fn set_foreground_window_in_foreground(windowh: HWND) -> windows::core::Result<(
 
         let mut process_id: u32 = 0;
         GetWindowThreadProcessId(foreground, &mut process_id);
-        
+
         let processh = OpenProcess(
             PROCESS_VM_WRITE | PROCESS_VM_READ | PROCESS_VM_OPERATION | 
             PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION, BOOL(0), process_id);
@@ -391,7 +391,7 @@ unsafe fn _set_foreground_window_ex(target_window: HWND) -> HWND {
 		// but later, after the hotkey is released, it can be.  So perhaps this is being
 		// caused by the fact that the user has keys held down (logically or physically?)
 		// Releasing those keys with a key-up event might help, so try that sometime:
-		
+
         // TODO: implement these?
         // KeyEvent(KEYDOWNANDUP, VK_MENU);
 		// KeyEvent(KEYDOWNANDUP, VK_MENU);
@@ -419,7 +419,7 @@ unsafe fn _set_foreground_window_ex(target_window: HWND) -> HWND {
 	if is_attached_fore_to_target.as_bool() {
 		AttachThreadInput(fore_thread, target_thread, BOOL(0));
     }
-    
+
 	// Finally.  This one works, solving the problem of the MessageBox window
 	// having the input focus and being the foreground window, but not actually
 	// being visible (even though IsVisible() and IsIconic() say it is)!  It may
@@ -454,7 +454,7 @@ unsafe fn _set_foreground_window_ex(target_window: HWND) -> HWND {
     //  And if that doesn't work
     // https://stackoverflow.com/questions/17782622/understanding-systemparametersinfo-spi-setforegroundlocktimeout
     /*
-    
+
 void SetForegroundLockTimeout()
 {
 	// Even though they may not help in all OSs and situations, this lends peace-of-mind.
@@ -521,7 +521,7 @@ pub fn set_foreground_window_terminal(windowh: HWND) -> windows::core::Result<()
 		if IsIconic(windowh).as_bool() {
 			ShowWindow(windowh, SW_RESTORE);
 		}
-		
+
         let foreground = GetForegroundWindow();
 
         let foreground_thread_id = GetWindowThreadProcessId(foreground, std::ptr::null_mut() as *mut u32);

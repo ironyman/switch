@@ -52,7 +52,7 @@ pub struct WindowInfo {
 
 impl Drop for WindowInfo {
     fn drop(&mut self) {
-        
+
     }
 }
 
@@ -102,7 +102,7 @@ extern "system" fn enum_window_proc(windowh: HWND, lparam: LPARAM) -> BOOL {
 
         let mut process_id: u32 = 0;
         GetWindowThreadProcessId(windowh, &mut process_id);
-        
+
         let processh = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL(0), process_id);
 
         let mut image_name: [u16; 512] = [0; 512];
@@ -115,7 +115,7 @@ extern "system" fn enum_window_proc(windowh: HWND, lparam: LPARAM) -> BOOL {
         let image_name: String = Path::new(&image_name).file_stem().unwrap().to_str().unwrap().into();
 
         let windows = lparam.0 as *mut Vec<WindowInfo>;
-        
+
         (*windows).push(WindowInfo { windowh, window_text, process_id, image_name, style, ex_style });
 
         // if !text.is_empty() {
@@ -191,7 +191,7 @@ impl WindowProvider {
         if self.windows.len() <= 1 {
             return vec![]
         }
-        
+
         self.windows.iter().filter(|&w| {
             if w.process_id == self.terminal_host_pid {
                 return false;

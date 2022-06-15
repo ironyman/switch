@@ -8,7 +8,7 @@ pub unsafe fn enable_vt_mode() {
 
     let mut mode = CONSOLE_MODE(0);
     GetConsoleMode(output, &mut mode);
-    
+
     mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     SetConsoleMode(output, mode);
 }
@@ -28,7 +28,7 @@ pub unsafe fn clear_console() -> Result<()> {
     // let mut screen_buffer: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
 
     // GetConsoleScreenBufferInfo(output, &mut screen_buffer);
-    
+
     // let origin  = COORD{ X: 0, Y: 0 };
     // let mut written: u32 = 0;
 
