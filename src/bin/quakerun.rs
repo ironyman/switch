@@ -23,6 +23,8 @@ const HIDE_QUAKE_EVENT_NAME: &str = "HideQuake";
 const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
 const RUN_QUAKE_EVENT_NAME: &str = "RunQuake";
 
+static mut HOOK_HANDLE: HHOOK = HHOOK(0);
+
 unsafe fn create_process(cmdline: String) -> Result<u32> {
     let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
     let mut si: STARTUPINFOW = std::mem::zeroed();
@@ -44,7 +46,7 @@ unsafe fn create_process(cmdline: String) -> Result<u32> {
     if !created.as_bool() {
         return Err(Error::from_win32());
     }
-    
+
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
@@ -155,7 +157,7 @@ unsafe extern "system" fn enum_window_proc(windowh: HWND, lparam: LPARAM) -> BOO
     if !IsWindowVisible(windowh).as_bool() {
         return BOOL(1);
     }
-    
+
     let lparam = lparam.0 as usize as *mut EnumWindowData;
 
     let mut process_id: u32 = 0;
@@ -197,7 +199,7 @@ unsafe fn set_dwm_style(window: HWND) -> Result<()> {
     // but it creates a minized window outside of taskbar.
     // let style = GetWindowLongPtrW(window, GWL_EXSTYLE);
     // SetWindowLongPtrW(window, GWL_EXSTYLE, style | (WS_EX_TOOLWINDOW.0 as isize));
-    
+
     return Ok(());
 }
 
@@ -208,6 +210,60 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
         // set_event_by_name(EXIT_QUAKE_EVENT_NAME);
     }
     return BOOL(1);
+}
+
+// Capslock is modifier key for CAP + arrow shortcuts.
+// Shift + CAP is used to toggle capslock.
+unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    static mut CAPSLOCK_PRESSED: bool = false;
+    static mut SHIFT_PRESSED: bool = false;
+
+    if code < 0 || code != HC_ACTION as i32 {
+        return CallNextHookEx(HOOK_HANDLE, code, wparam, lparam);
+    }
+
+    let kbdllhookstruct: *const KBDLLHOOKSTRUCT = lparam.0 as *const _;
+    let vk = VIRTUAL_KEY((*kbdllhookstruct).vkCode as u16);
+    let press_state = wparam.0 as u32;
+
+    if vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT  {
+        if press_state == WM_KEYDOWN {
+            SHIFT_PRESSED = true;
+        } else {
+            SHIFT_PRESSED = false;
+        }
+    }
+
+    if vk == VK_CAPITAL && !SHIFT_PRESSED {
+        if press_state == WM_KEYDOWN {
+            CAPSLOCK_PRESSED = true;
+        } else {
+            CAPSLOCK_PRESSED = false;
+        }
+        return LRESULT(1);
+    }
+
+    if press_state == WM_KEYDOWN && CAPSLOCK_PRESSED {
+        match vk {
+            VK_LEFT => {
+
+            },
+            VK_RIGHT => {
+
+            },
+            VK_UP => {
+
+            },
+            VK_DOWN => {
+
+            },
+            _ => {
+
+            }
+        }
+    }
+
+    return CallNextHookEx(HOOK_HANDLE, code, wparam, lparam);
 }
 
 unsafe fn _kill_window_process(windowh: HWND) {
@@ -280,12 +336,14 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
         let terminal_pid = windowprovider::getppid(GetCurrentProcessId());
         let quake_window = get_process_window(terminal_pid)?;
         configure_quake_window(quake_window)?;
-        
+
         // backtick
         // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
         if !RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
             log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
         }
+
+        HOOK_HANDLE = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), HINSTANCE(0), 0);
 
         loop {
             let mut msg: MSG = std::mem::zeroed();
@@ -296,7 +354,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                         switch::console::clear_console()?;
 
                         let pid = create_process(command.into());
-    
+
                         let pid = if pid.is_err() {
                             set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                             ResetEvent(run_quake_event);
@@ -304,7 +362,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                         } else {
                             pid.unwrap()
                         };
-    
+
                         current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
                         waits.add(current_running_process);
                         ResetEvent(run_quake_event);
@@ -319,9 +377,9 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                             SetEvent(run_quake_event);
                             ShowWindow(quake_window, SW_SHOW);
                         }
-                        
+
                         // windows2::set_foreground_window_ex(quake_window);
-                        
+
                         let cmdline = "wt -w _quake fp --target 0".to_string();
                         create_process(cmdline)?;
 
@@ -365,13 +423,14 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
             }
         }
 
+        UnhookWindowsHookEx(HOOK_HANDLE);
         UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
 
         CloseHandle(should_exit_event);
         CloseHandle(run_quake_event);
         CloseHandle(open_quake_event);
         CloseHandle(hide_quake_event);
-        
+
         DestroyWindow(quake_window); // Doesn't work..
         SendMessageW(quake_window, WM_CLOSE, WPARAM(0), LPARAM(0));
         SendMessageW(quake_window, WM_QUIT, WPARAM(0), LPARAM(0));
@@ -439,7 +498,7 @@ fn main() -> Result<()> {
             BOOL(0),
             std::ffi::OsString::from(EXIT_QUAKE_EVENT_NAME)
         );
-        
+
         assert!(!should_exit_event.is_invalid());
 
         if Error::from_win32().code() == ERROR_ALREADY_EXISTS.to_hresult() {    
