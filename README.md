@@ -29,7 +29,7 @@ cargo build
 ```
 We can run the build output like this
 ```
-.\target\debug\quakerun.exe -c (pwd).path\target\debug\switch.exe
+.\target\debug\quakerun.exe -c "$((pwd).path)\target\debug\switch.exe"
 ```
 quakerun.exe will listen for ``Alt+` `` key press and launch switch.exe in windows terminal in quake mode.
 
