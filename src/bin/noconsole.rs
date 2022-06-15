@@ -16,7 +16,7 @@ fn main() -> Result<()> {
         let mut si: STARTUPINFOW = std::mem::zeroed();
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
         si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-    
+
         let created = CreateProcessW(
             PCWSTR(std::ptr::null()),
             PWSTR(cmdline.as_mut_ptr() as *mut _),
@@ -34,10 +34,10 @@ fn main() -> Result<()> {
             return Err(Error::from_win32());
         }
         println!("Started");
-        
+
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
-    
+
         return Ok(());
     }
 }

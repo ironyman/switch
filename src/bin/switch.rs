@@ -161,7 +161,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         WindowProvider::new(),
         StartAppsProvider::new(),
     ], screen_width, screen_height);
-    
+
     app.list_next();
     if app.current_provider().get_filtered_list().len() > 1 {
         app.list_next();
@@ -203,7 +203,7 @@ fn run_app<B: Backend>(
         let timeout = tick_rate
             .checked_sub(last_tick.elapsed())
             .unwrap_or_else(|| Duration::from_secs(0));
-        
+
         if crossterm::event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key) => {
@@ -240,12 +240,12 @@ fn run_app<B: Backend>(
                                 // it just flashes that window in task bar and nothing else
                                 // SetForegroundWindow(app.list[selected].windowh);
 
-                                
+
                                 // This brings the other window to foreground, but doesn't focus it.
                                 // SetWindowPos(app.list[selected].windowh, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                                 // SetWindowPos(app.list[selected].windowh, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
                             // }
-                            
+
                             //set_foreground_window_in_foreground(app.list[selected].windowh);
                             // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
                             // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
@@ -310,7 +310,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
                 .bg(Color::LightGreen)
                 .add_modifier(Modifier::BOLD),
         );
-    
+
     // We can now render the item list
     //f.render_stateful_widget(items, chunks[0], &mut app.list.state);
     f.render_stateful_widget(items, f.size(), &mut app.list_state);
