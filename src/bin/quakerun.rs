@@ -246,16 +246,24 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
     if press_state == WM_KEYDOWN && CAPSLOCK_PRESSED {
         match vk {
             VK_LEFT => {
-
+                let _ = switch::windowgeometry::get_adjacent_window(
+                    GetForegroundWindow(),
+                    switch::windowgeometry::Direction::Left).and_then(set_foreground_window_terminal);
             },
             VK_RIGHT => {
-
+                let _ = switch::windowgeometry::get_adjacent_window(
+                    GetForegroundWindow(),
+                    switch::windowgeometry::Direction::Right).and_then(set_foreground_window_terminal);
             },
             VK_UP => {
-
+                let _ = switch::windowgeometry::get_adjacent_window(
+                    GetForegroundWindow(),
+                    switch::windowgeometry::Direction::Up).and_then(set_foreground_window_terminal);
             },
             VK_DOWN => {
-
+                let _ = switch::windowgeometry::get_adjacent_window(
+                    GetForegroundWindow(),
+                    switch::windowgeometry::Direction::Down).and_then(set_foreground_window_terminal);
             },
             _ => {
 
@@ -295,6 +303,9 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
 
 fn quake_terminal_runner(command: &str) -> Result<()> {
     unsafe {
+
+        // CoInitializeEx(0, COINIT_APARTMENTTHREADED).ok();
+
         let mut waits = WaitList::new();
         let mut current_running_process = HANDLE(0);
 
