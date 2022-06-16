@@ -11,3 +11,4 @@ mod listcontentprovider;
 pub mod waitlist;
 pub mod console;
 pub mod windowgeometry;
+pub mod log;
