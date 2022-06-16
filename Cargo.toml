@@ -33,4 +33,6 @@ features = [
     "Win32_Graphics_Dwm",
     "Win32_System_SystemServices",
     "Win32_System_Console",
+    "Win32_UI_Shell",
+    "Win32_System_Com",
 ]
