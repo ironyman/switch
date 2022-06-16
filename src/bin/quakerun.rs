@@ -15,6 +15,10 @@ use switch::windowprovider;
 use switch::setforegroundwindow::set_foreground_window_terminal;
 use switch::waitlist::{WaitList, WaitResult};
 
+// Weird you have to import like this to use macro trace!, fully qualified path doesn't work,
+// but after you import it, its path becomes switch::trace! even though its full path is under switch::log...
+use switch::log::*;
+
 const WAIT_QUAKE_SECONDS: u32 = 60;
 const QUAKE_HOT_KEY_ID: i32 = 1;
 const QUAKE_WIN_HOT_KEY_ID: i32 = 2;
@@ -57,7 +61,6 @@ unsafe fn create_initial_quake_window(command: &str) -> Result<HWND> {
     let cmdline = "wt -w _quake ".to_string() 
         + &format!("{} --runner -c \"{}\"", std::env::current_exe().unwrap().to_str().unwrap(), command);
     println!("Running {}", cmdline);
-    log::trace!("[{}] Running {}", GetCurrentProcessId(), cmdline);
 
     let pid = create_process(cmdline)?;
     return Ok(wait_for_quake_window_start(pid)?);
@@ -74,7 +77,6 @@ unsafe fn wait_for_quake_window_start(process_id: u32) -> Result<HWND> {
         }
 
         println!("Found windowsterminal.exe pid: {}", windows_terminal_pid);
-        log::trace!("[{}] Found windowsterminal.exe pid: {}", GetCurrentProcessId(), windows_terminal_pid);
 
         let hwnd = get_process_window(windows_terminal_pid).unwrap();
 
@@ -301,9 +303,11 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
     return Ok(());
 }
 
-fn quake_terminal_runner(command: &str) -> Result<()> {
+fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
+    switch::log::initialize_log(log::Level::Debug, &["init"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
+    // log::info!("quake_terminal_runner started.");
+    switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
     unsafe {
-
         // CoInitializeEx(0, COINIT_APARTMENTTHREADED).ok();
 
         let mut waits = WaitList::new();
@@ -351,7 +355,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
         // backtick
         // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
         if !RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
-            log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
+            switch::trace!("hotkey", log::Level::Info, "RegisterHotKey returned {}", GetLastError().0);
         }
 
         HOOK_HANDLE = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), HINSTANCE(0), 0);
@@ -379,10 +383,10 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                         ResetEvent(run_quake_event);
                         set_foreground_window_terminal(quake_window)?;
                     } else if h == should_exit_event {
-                        log::trace!("[{}] Exiting", GetCurrentProcessId());
+                        switch::trace!("init", log::Level::Info, "quake_terminal_runner exiting.");
                         break;
                     } else if h == open_quake_event {
-                        log::trace!("WaitForMultipleObjects: OPEN_WAIT");
+                        switch::trace!("message_queue", log::Level::Info, "WaitForMultipleObjects: OPEN_WAIT");
 
                         if !IsWindowVisible(quake_window).as_bool() {
                             SetEvent(run_quake_event);
@@ -396,7 +400,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
 
                         ResetEvent(open_quake_event);
                     } else if h == hide_quake_event {
-                        log::trace!("WaitForMultipleObjects: HIDE_WAIT");
+                        switch::trace!("message_queue", log::Level::Info, "WaitForMultipleObjects: HIDE_WAIT");
                         ShowWindow(quake_window, SW_HIDE);
                         ShowWindow(quake_window, SW_MINIMIZE);
                         ResetEvent(hide_quake_event);
@@ -413,7 +417,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
                         match msg.message {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
-                                log::trace!("[{}] Hotkey pressed!", GetCurrentProcessId());
+                                switch::trace!("hotkey", log::Level::Info, "Hotkey pressed!");
 
                                 if current_running_process.is_invalid() {
                                     SetEvent(run_quake_event);
@@ -451,8 +455,7 @@ fn quake_terminal_runner(command: &str) -> Result<()> {
     }
 }
 
-fn main() -> Result<()> {
-    log::trace!("[{}] Quakerun started", unsafe { GetCurrentProcessId() });
+fn main() -> anyhow::Result<()> {
     let matches = Command::new("quakerun")
         .arg(Arg::new("runner")
             .short('r')
@@ -485,18 +488,18 @@ fn main() -> Result<()> {
         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
         return Ok(());
     } else if matches.occurrences_of("stop") == 1 {
-        log::trace!("[{}] Stopping quakerun", unsafe { GetCurrentProcessId() });
+        println!("Stopping quakerun...");
         set_event_by_name(EXIT_QUAKE_EVENT_NAME);
         return Ok(());
     }
 
     if matches.value_of("command").is_none() {
         println!("Need --command to be specified.");
-        return Err(Error::from(ERROR_INVALID_PARAMETER));
+        return Err(anyhow::Error::from(Error::from(ERROR_INVALID_PARAMETER)));
     }
 
     if matches.occurrences_of("runner") == 1 {
-        log::trace!("[{}] Quakerun started as terminal runner", unsafe { GetCurrentProcessId() });
+        println!("Quakerun starting as terminal runner.");
         return quake_terminal_runner(matches.value_of("command").unwrap());
     }
 
@@ -518,7 +521,7 @@ fn main() -> Result<()> {
 
         // Prevent this instance of quake terminal from registering default quake terminal hotkey.
         if !RegisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
-            log::trace!("[{}] RegisterHotKey returned {}", GetCurrentProcessId(), GetLastError().0);
+            println!("RegisterHotKey returned {}", GetLastError().0);
         }
 
         let quake_window = create_initial_quake_window(matches.value_of("command").unwrap())?;

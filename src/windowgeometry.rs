@@ -45,6 +45,7 @@ unsafe fn is_normal_window(window: HWND) -> bool {
        (style & WS_CHILD).0 == 0 &&
        window_text.len() != 0;
 }
+
 unsafe fn is_window_visible(window: HWND) -> bool {
     return IsWindowVisible(window).as_bool() && !is_window_cloaked(window) && is_normal_window(window);
 }
