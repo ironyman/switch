@@ -3,9 +3,12 @@ use windows::{
     Win32::UI::WindowsAndMessaging::*,
     // Win32::UI::Shell::*,
     Win32::Graphics::Dwm::*,
+    Win32::Graphics::Gdi::*,
     // Win32::System::Com::*,
     // core::Interface,
 };
+
+use crate::log::*;
 
 #[derive(Eq, PartialEq)]
 pub enum Direction {
@@ -50,23 +53,53 @@ unsafe fn is_window_visible(window: HWND) -> bool {
     return IsWindowVisible(window).as_bool() && !is_window_cloaked(window) && is_normal_window(window);
 }
 
+struct WindowInfo {
+    hwnd: HWND,
+    rc: RECT,
+    z: i32,
+}
+
+unsafe fn get_windows() -> Vec<WindowInfo> {
+    let mut result: Vec<WindowInfo> = vec![];
+    let mut hwnd = GetTopWindow(GetDesktopWindow());
+
+    while !hwnd.is_invalid() {
+        if !is_window_visible(hwnd) {
+            let mut rc: RECT = std::mem::zeroed();
+            GetWindowRect(hwnd, &mut rc);
+            result.push(WindowInfo {
+                hwnd,
+                rc,
+                z: 0,
+            });
+        }
+        hwnd = GetWindow(hwnd, GW_HWNDNEXT);
+    }
+
+    return result;
+}
+
 pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> windows::core::Result<HWND> {
     let mut from_rc: RECT = std::mem::zeroed();
     GetWindowRect(from_window, &mut from_rc);
 
     let mut candidate_window = GetTopWindow(GetDesktopWindow());
 
+    crate::trace!("directional_switching", log::Level::Debug, "from_rc: {:?}", from_rc);
+
     loop {
         if is_window_visible(candidate_window) {
             let mut candidate_rc: RECT = std::mem::zeroed();
             GetWindowRect(candidate_window, &mut candidate_rc);
-            if dir == Direction::Left && candidate_rc.right < from_rc.left {
+            crate::trace!("directional_switching", log::Level::Debug, "candidate_rc: {:?}", candidate_rc);
+
+            if dir == Direction::Left && candidate_rc.right <= from_rc.left {
                 return Ok(candidate_window);
-            } else if dir == Direction::Right && candidate_rc.left > from_rc.right {
+            } else if dir == Direction::Right && candidate_rc.left >= from_rc.right {
                 return Ok(candidate_window);
-            } else if dir == Direction::Up && candidate_rc.bottom < from_rc.top {
+            } else if dir == Direction::Up && candidate_rc.bottom <= from_rc.top {
                 return Ok(candidate_window);
-            } else if dir == Direction::Down && candidate_rc.top > from_rc.bottom {
+            } else if dir == Direction::Down && candidate_rc.top >= from_rc.bottom {
                 return Ok(candidate_window);
             }
         }
@@ -76,3 +109,45 @@ pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> windows:
         }
     }
 }
+
+// // GetRgnBox
+// unsafe fn get_visible_region(hwnd: HWND) -> HRGN {   
+//     //Store the region of window hwnd
+//     let mut rc: RECT = std::mem::zeroed();
+
+//     GetWindowRect(hwnd, &mut rc);
+
+//     let rgn = CreateRectRgn(rc.left, rc.top, rc.right, rc.bottom);
+
+//     let parent = GetAncestor(hwnd, GA_PARENT);
+
+//     let mut iter = hwnd;
+//     let iter = hwnd;
+
+//     while !iter.is_invalid() && iter != GetDesktopWindow() {
+//         let topWnd = GetTopWindow(parent);
+//         do
+//         {
+//             if topWnd == iter {
+//                 break;
+//             }
+//             RECT topWndRect={0,0,0,0};
+//             GetWindowRect(topWnd,&topWndRect);
+//             RECT tempRect={0,0,0,0};
+//             //Other window overlapping with hwnd
+//             if(::IsWindowVisible(topWnd) && !::IsIconic(topWnd) && IntersectRect(&tempRect,&topWndRect, &rc)!=0) 
+//             {
+//                 HRGN topWndRgn=::CreateRectRgn(topWndRect.left,topWndRect.top,topWndRect.right,topWndRect.bottom);
+//                 ::CombineRgn(rgn,rgn,topWndRgn,RGN_DIFF);
+//                 ::RealDeleteObject(topWndRgn);
+//             }
+//             topWnd = GetNextWindow(topWnd, TWO);
+
+//         } while(topWnd != NULL);
+
+//         iter = parent;
+//         parent = GetAncestor(parent, GA_PARENT);
+//     }
+
+//     return rgn;
+// }
