@@ -59,7 +59,7 @@ struct WindowInfo {
     z: i32,
 }
 
-unsafe fn get_windows() -> Vec<WindowInfo> {
+unsafe fn get_candidate_windows() -> Vec<WindowInfo> {
     let mut result: Vec<WindowInfo> = vec![];
     let mut hwnd = GetTopWindow(GetDesktopWindow());
 
@@ -83,71 +83,70 @@ pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> windows:
     let mut from_rc: RECT = std::mem::zeroed();
     GetWindowRect(from_window, &mut from_rc);
 
-    let mut candidate_window = GetTopWindow(GetDesktopWindow());
-
     crate::trace!("directional_switching", log::Level::Debug, "from_rc: {:?}", from_rc);
+    let windows = get_candidate_windows();
 
-    loop {
-        if is_window_visible(candidate_window) {
-            let mut candidate_rc: RECT = std::mem::zeroed();
-            GetWindowRect(candidate_window, &mut candidate_rc);
-            crate::trace!("directional_switching", log::Level::Debug, "candidate_rc: {:?}", candidate_rc);
+    for w in windows.iter() {
+        // if is_window_visible(candidate_window) {
+        //     let mut candidate_rc: RECT = std::mem::zeroed();
+        //     GetWindowRect(candidate_window, &mut candidate_rc);
+        //     crate::trace!("directional_switching", log::Level::Debug, "candidate_rc: {:?}", candidate_rc);
 
-            if dir == Direction::Left && candidate_rc.right <= from_rc.left {
-                return Ok(candidate_window);
-            } else if dir == Direction::Right && candidate_rc.left >= from_rc.right {
-                return Ok(candidate_window);
-            } else if dir == Direction::Up && candidate_rc.bottom <= from_rc.top {
-                return Ok(candidate_window);
-            } else if dir == Direction::Down && candidate_rc.top >= from_rc.bottom {
-                return Ok(candidate_window);
-            }
-        }
-        candidate_window = GetWindow(candidate_window, GW_HWNDNEXT);
-        if candidate_window.is_invalid() {
-            return Err(windows::core::Error::new(E_HANDLE, windows::core::HSTRING::from("No more windows")));
-        }
+        //     if dir == Direction::Left && candidate_rc.right <= from_rc.left {
+        //         return Ok(candidate_window);
+        //     } else if dir == Direction::Right && candidate_rc.left >= from_rc.right {
+        //         return Ok(candidate_window);
+        //     } else if dir == Direction::Up && candidate_rc.bottom <= from_rc.top {
+        //         return Ok(candidate_window);
+        //     } else if dir == Direction::Down && candidate_rc.top >= from_rc.bottom {
+        //         return Ok(candidate_window);
+        //     }
+        // }
+        // candidate_window = GetWindow(candidate_window, GW_HWNDNEXT);
+        // if candidate_window.is_invalid() {
+        //     return Err(windows::core::Error::new(E_HANDLE, windows::core::HSTRING::from("No more windows")));
+        // }
     }
+    Ok(HWND(0))
 }
 
-// // GetRgnBox
-// unsafe fn get_visible_region(hwnd: HWND) -> HRGN {   
-//     //Store the region of window hwnd
-//     let mut rc: RECT = std::mem::zeroed();
+unsafe fn get_visible_region(hwnd: HWND) -> HRGN {   
+    //Store the region of window hwnd
+    let mut rc: RECT = std::mem::zeroed();
 
-//     GetWindowRect(hwnd, &mut rc);
+    GetWindowRect(hwnd, &mut rc);
 
-//     let rgn = CreateRectRgn(rc.left, rc.top, rc.right, rc.bottom);
+    let rgn = CreateRectRgn(rc.left, rc.top, rc.right, rc.bottom);
 
-//     let parent = GetAncestor(hwnd, GA_PARENT);
+    let parent = GetAncestor(hwnd, GA_PARENT);
 
-//     let mut iter = hwnd;
-//     let iter = hwnd;
+    let mut iter = hwnd;
+    let iter = hwnd;
 
-//     while !iter.is_invalid() && iter != GetDesktopWindow() {
-//         let topWnd = GetTopWindow(parent);
-//         do
-//         {
-//             if topWnd == iter {
-//                 break;
-//             }
-//             RECT topWndRect={0,0,0,0};
-//             GetWindowRect(topWnd,&topWndRect);
-//             RECT tempRect={0,0,0,0};
-//             //Other window overlapping with hwnd
-//             if(::IsWindowVisible(topWnd) && !::IsIconic(topWnd) && IntersectRect(&tempRect,&topWndRect, &rc)!=0) 
-//             {
-//                 HRGN topWndRgn=::CreateRectRgn(topWndRect.left,topWndRect.top,topWndRect.right,topWndRect.bottom);
-//                 ::CombineRgn(rgn,rgn,topWndRgn,RGN_DIFF);
-//                 ::RealDeleteObject(topWndRgn);
-//             }
-//             topWnd = GetNextWindow(topWnd, TWO);
+    while !iter.is_invalid() && iter != GetDesktopWindow() {
+        let topWnd = GetTopWindow(parent);
+        do
+        {
+            if topWnd == iter {
+                break;
+            }
+            RECT topWndRect={0,0,0,0};
+            GetWindowRect(topWnd,&topWndRect);
+            RECT tempRect={0,0,0,0};
+            //Other window overlapping with hwnd
+            if(::IsWindowVisible(topWnd) && !::IsIconic(topWnd) && IntersectRect(&tempRect,&topWndRect, &rc)!=0) 
+            {
+                HRGN topWndRgn=::CreateRectRgn(topWndRect.left,topWndRect.top,topWndRect.right,topWndRect.bottom);
+                ::CombineRgn(rgn,rgn,topWndRgn,RGN_DIFF);
+                ::RealDeleteObject(topWndRgn);
+            }
+            topWnd = GetNextWindow(topWnd, TWO);
 
-//         } while(topWnd != NULL);
+        } while(topWnd != NULL);
 
-//         iter = parent;
-//         parent = GetAncestor(parent, GA_PARENT);
-//     }
+        iter = parent;
+        parent = GetAncestor(parent, GA_PARENT);
+    }
 
-//     return rgn;
-// }
+    return rgn;
+}
