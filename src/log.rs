@@ -102,6 +102,7 @@ pub fn __private_log(
 macro_rules! trace {
     // trace!("init", LogLevel::Debug, "a {} event", "log")
     ($group:expr, $lvl:expr, $($arg:tt)+) => ({
+        #[allow(unused_unsafe)]
         unsafe {
             if CURRENT_LOG_LEVEL >= $lvl && CURRENT_LOG_GROUPS.is_some() && CURRENT_LOG_GROUPS.as_ref().unwrap().contains($group) {
                 __private_log(
