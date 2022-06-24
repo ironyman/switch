@@ -245,32 +245,35 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
         return LRESULT(1);
     }
 
-    if press_state == WM_KEYDOWN && CAPSLOCK_PRESSED {
-        match vk {
-            VK_LEFT => {
-                let _ = switch::windowgeometry::get_adjacent_window(
-                    GetForegroundWindow(),
-                    switch::windowgeometry::Direction::Left).and_then(set_foreground_window_terminal);
-            },
-            VK_RIGHT => {
-                let _ = switch::windowgeometry::get_adjacent_window(
-                    GetForegroundWindow(),
-                    switch::windowgeometry::Direction::Right).and_then(set_foreground_window_terminal);
-            },
-            VK_UP => {
-                let _ = switch::windowgeometry::get_adjacent_window(
-                    GetForegroundWindow(),
-                    switch::windowgeometry::Direction::Up).and_then(set_foreground_window_terminal);
-            },
-            VK_DOWN => {
-                let _ = switch::windowgeometry::get_adjacent_window(
-                    GetForegroundWindow(),
-                    switch::windowgeometry::Direction::Down).and_then(set_foreground_window_terminal);
-            },
-            _ => {
+    if CAPSLOCK_PRESSED {
+        if press_state == WM_KEYUP {
+            match vk {
+                VK_LEFT => {
+                    let _ = switch::windowgeometry::get_adjacent_window(
+                        GetForegroundWindow(),
+                        switch::windowgeometry::Direction::Left).and_then(set_foreground_window_terminal);
+                },
+                VK_RIGHT => {
+                    let _ = switch::windowgeometry::get_adjacent_window(
+                        GetForegroundWindow(),
+                        switch::windowgeometry::Direction::Right).and_then(set_foreground_window_terminal);
+                },
+                VK_UP => {
+                    let _ = switch::windowgeometry::get_adjacent_window(
+                        GetForegroundWindow(),
+                        switch::windowgeometry::Direction::Up).and_then(set_foreground_window_terminal);
+                },
+                VK_DOWN => {
+                    let _ = switch::windowgeometry::get_adjacent_window(
+                        GetForegroundWindow(),
+                        switch::windowgeometry::Direction::Down).and_then(set_foreground_window_terminal);
+                },
+                _ => {
 
+                }
             }
         }
+        return LRESULT(1);
     }
 
     return CallNextHookEx(HOOK_HANDLE, code, wparam, lparam);
@@ -304,7 +307,7 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "directional_switching"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
     unsafe {
