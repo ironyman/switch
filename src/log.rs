@@ -3,7 +3,7 @@ use log::{LevelFilter, SetLoggerError};
 // use log::{debug, error, info, trace, warn, LevelFilter, SetLoggerError};
 use log4rs::{
     append::{
-        // console::{ConsoleAppender, Target},
+        console::{ConsoleAppender, Target},
         file::FileAppender,
     },
     config::{Appender, Config, Root},
@@ -51,7 +51,7 @@ where IntoString: Into<String> {
     // Logging to log file.
     let logfile = FileAppender::builder()
         // Pattern: https://docs.rs/log4rs/*/log4rs/encode/pattern/index.html
-        .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
+        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
         .build(std::path::Path::new(&file_path.into()))
         .unwrap();
 
@@ -84,6 +84,39 @@ where IntoString: Into<String> {
     // debug!("Goes to file only");
     // trace!("Goes to file only");
 
+    Ok(_handle)
+}
+
+
+pub fn initialize_test_log(level: log::Level, groups: &[&str]) -> Result<log4rs::Handle, SetLoggerError> {
+    unsafe {
+        CURRENT_LOG_LEVEL = level;
+        let groups: std::vec::Vec<String> = groups.iter().map(|x| x.to_string()).collect();
+        CURRENT_LOG_GROUPS = Some(groups.into_iter().collect());
+    }
+
+    let stderr = ConsoleAppender::builder().target(Target::Stderr)
+        .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
+        .build();
+
+    // let logfile = FileAppender::builder()
+    //     // Pattern: https://docs.rs/log4rs/*/log4rs/encode/pattern/index.html
+    //     .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} - {m}\n")))
+    //     .build(std::path::Path::new(&file_path.into()))
+    //     .unwrap();
+
+    // Log Trace level output to file where trace is the default level
+    // and the programmatically specified level to stderr.
+    let config = Config::builder()
+        .appender(
+            Appender::builder().build("stderr", Box::new(stderr)),
+        )
+        .build(
+            Root::builder().appender("stderr").build(LevelFilter::Trace),
+        )
+        .unwrap();
+
+    let _handle = log4rs::init_config(config)?;
     Ok(_handle)
 }
 
