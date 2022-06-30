@@ -511,7 +511,8 @@ fn set_foreground_window2(windowh: HWND) -> windows::core::Result<()> {
 }
 
 // This code is taken from IslandWindow::_globalActivateWindow from windows terminal.
-pub fn set_foreground_window_terminal(windowh: HWND) -> windows::core::Result<()> {
+// pub fn set_foreground_window_terminal(windowh: HWND) -> windows::core::Result<()> {
+pub fn set_foreground_window_terminal(windowh: HWND) -> anyhow::Result<()> {
     unsafe {
         if !IsWindowVisible(windowh).as_bool() {
             ShowWindow(windowh, SW_SHOW);

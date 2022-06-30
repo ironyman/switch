@@ -52,6 +52,10 @@ To rebuild and restart
 cargo build
 start-scheduledtask quakerun
 ```
+or
+```
+.\target\debug\quakerun.exe -s; cargo build; .\target\debug\quakerun.exe -c "$((pwd).path)\target\debug\switch.exe"
+```
 To uninstall
 ```
 c:\switch\uninstall.ps1
