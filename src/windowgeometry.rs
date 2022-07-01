@@ -245,6 +245,7 @@ pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> anyhow::
     let adjacent = windows.iter()
         .filter(|&w| w.visible_percent >= 50)
         .filter(|&w| w.hwnd != from_window)
+        .filter(|&w| unsafe { !IsIconic(w.hwnd).as_bool() } )
         .fold(None, |accumulator: Option<&WindowInfo>, item| {
         // if (dir == Direction::Left && item.visible_centroid.x > from_window_info.visible_centroid.x) ||
         //     (dir == Direction::Right && item.visible_centroid.x < from_window_info.visible_centroid.x) ||
@@ -422,11 +423,13 @@ unsafe fn calculate_visibility(windows: &mut Vec<WindowInfo>) {
         let rects_nr = region.rdh.nCount as usize;
         let rcs: &[RECT] = std::slice::from_raw_parts(region.Buffer.as_ptr() as *const _, rects_nr);
 
+        let mut centroid_x_sum = 0i64;
+        let mut centroid_y_sum = 0i64;
         for j in 0usize .. rects_nr {
             let area = rect_area(&rcs[j]);
             visible_area += area;
-            windows[i].visible_centroid.x += area as i32 * rect_centroid(&rcs[j]).x;
-            windows[i].visible_centroid.y += area as i32 * rect_centroid(&rcs[j]).y;
+            centroid_x_sum += area as i64 * rect_centroid(&rcs[j]).x as i64;
+            centroid_y_sum += area as i64 * rect_centroid(&rcs[j]).y as i64;
             // accumulate_centroid(
             //     &windows[i].visible_centroid, 
             //     j,
@@ -437,8 +440,8 @@ unsafe fn calculate_visibility(windows: &mut Vec<WindowInfo>) {
         // If Ai is the area of rectangle i, and Ci is the centroid of rectangle i, then the centroid of all the rectangles taken together is just:
         // Sum(i = 1..n; Ai Ci)/Sum(i = 1..n; Ai)
         if visible_area != 0 {
-            windows[i].visible_centroid.x /= visible_area as i32;
-            windows[i].visible_centroid.y /= visible_area as i32;
+            windows[i].visible_centroid.x = (centroid_x_sum / visible_area as i64) as i32;
+            windows[i].visible_centroid.y = (centroid_y_sum / visible_area as i64) as i32;
         }
 
         windows[i].visible_percent = (100 * visible_area / total_area) as i32;
