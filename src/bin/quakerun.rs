@@ -5,6 +5,7 @@ use windows::{
     Win32::UI::Input::KeyboardAndMouse::*,
     Win32::UI::WindowsAndMessaging::*,
     Win32::Graphics::Dwm::*,
+    Win32::Graphics::Gdi::*,
     Win32::System::Diagnostics::ToolHelp::*,
     Win32::System::SystemServices::*,
     Win32::System::SystemInformation::*,
@@ -29,6 +30,7 @@ const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
 const RUN_QUAKE_EVENT_NAME: &str = "RunQuake";
 
 static mut HOOK_HANDLE: HHOOK = HHOOK(0);
+static mut MAIN_THREAD_ID: u32 = 0u32;
 
 unsafe fn create_process(cmdline: String) -> Result<u32> {
     let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
@@ -215,7 +217,97 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
     return BOOL(1);
 }
 
-unsafe extern "system" fn toggle_highlight(_instance: *mut TP_CALLBACK_INSTANCE, context: *mut ::core::ffi::c_void, _timer: *mut TP_TIMER) {
+pub unsafe extern "system" fn destroy_highlight_window(_instance: *mut TP_CALLBACK_INSTANCE, context: *mut ::core::ffi::c_void, _timer: *mut TP_TIMER) {
+    let highlight_window = core::mem::transmute::<_, HWND>(context);
+    switch::trace!("highlight_window", log::Level::Debug, "destroy_highlight_window: {:?}", highlight_window);
+    // DestroyWindow(highlight_window);
+    SendMessageW(highlight_window, WM_CLOSE, WPARAM(0), LPARAM(0));    
+}
+
+pub unsafe extern "system" fn create_highlight_window(_instance: *mut TP_CALLBACK_INSTANCE, context: *mut ::core::ffi::c_void, _timer: *mut TP_TIMER) {
+    let target_window = core::mem::transmute::<_, HWND>(context);
+    let instance = windows::Win32::System::LibraryLoader::GetModuleHandleA(None);
+
+    // This causes windows to hang when switching rapidly.
+    // AttachThreadInput(GetCurrentThreadId(), MAIN_THREAD_ID, BOOL(1));
+
+    extern "system" fn wndproc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        unsafe {
+            match message as u32 {
+                // Both WM_SHOWWINDOW and WM_CREATE is before window is shown.
+                // WM_SHOWWINDOW => {
+                //     // SetTimer(window, 1, 400, None);
+                //     LRESULT(0)
+                // }
+                // not used.
+                // 1 => {
+                //     switch::trace!("highlight_window", log::Level::Debug, "wndproc: timer expired");
+                //     DestroyWindow(window);
+                //     LRESULT(0)
+                // }
+                WM_PAINT => {
+                    ValidateRect(window, std::ptr::null());
+                    LRESULT(0)
+                }
+                WM_NCPAINT => {
+                    ValidateRect(window, std::ptr::null());
+                    LRESULT(0)
+                }
+                WM_DESTROY => {
+                    switch::trace!("highlight_window", log::Level::Debug, "wndproc: destroy");
+                    // PostQuitMessage(0);
+                    LRESULT(0)
+                }
+                _ => DefWindowProcA(window, message, wparam, lparam),
+            }
+        }
+    }
+    let window_class = PCSTR(b"highlightwindow\0".as_ptr());
+    let wc = WNDCLASSA {
+        hCursor: LoadCursorW(None, IDC_ARROW),
+        hInstance: instance,
+        lpszClassName: window_class,
+        style: CS_HREDRAW | CS_VREDRAW,
+        lpfnWndProc: Some(wndproc),
+        hbrBackground: core::mem::transmute(GetStockObject(BLACK_BRUSH)),
+        ..Default::default()
+    };
+    
+    let _atom = RegisterClassA(&wc);
+
+    let mut rc: RECT = std::mem::zeroed();
+    GetWindowRect(target_window, &mut rc);
+
+    let highlight_window = CreateWindowExA(
+        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW,
+        window_class,
+        PCSTR(std::ptr::null()),
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_POPUP, // WS_POPUP removes NC area, but WS_OVERLAPPEDWINDOW adds it back...
+        rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
+        None, None, instance, std::ptr::null());
+	SetLayeredWindowAttributes(highlight_window, 0, 30, LWA_ALPHA);
+	UpdateWindow(highlight_window);
+
+    switch::trace!("highlight_window", log::Level::Debug, "create_highlight_window: {:?}", highlight_window);
+
+    ShowWindow(highlight_window, SW_SHOW);
+
+    let timer = CreateThreadpoolTimer(Some(destroy_highlight_window), core::mem::transmute(highlight_window), std::ptr::null());
+    let mut clear_time = FILETIME::default();
+    
+    GetSystemTimeAsFileTime(&mut clear_time);
+    clear_time.dwLowDateTime += 10*1000*100;
+    SetThreadpoolTimer(timer, &clear_time, 0, 0);
+
+    let mut message = MSG::default();
+
+    while GetMessageA(&mut message, HWND(0), 0, 0).into() {
+        DispatchMessageA(&message);
+    }
+}
+
+// Use create_highlight_window instead.
+unsafe extern "system" fn _toggle_highlight(_instance: *mut TP_CALLBACK_INSTANCE, context: *mut ::core::ffi::c_void, _timer: *mut TP_TIMER) {
     let window = core::mem::transmute::<_, HWND>(context);
     if GetForegroundWindow() == window {
         switch::trace!("directional_switching", log::Level::Debug, "toggle_highlight: {:?}", window);
@@ -289,14 +381,8 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 
                 let adjacent_window = adjacent_window.unwrap();
                 let _ = set_foreground_window_terminal(adjacent_window);
-                let timer = CreateThreadpoolTimer(Some(toggle_highlight), core::mem::transmute(adjacent_window), std::ptr::null());
+                let timer = CreateThreadpoolTimer(Some(create_highlight_window), core::mem::transmute(adjacent_window), std::ptr::null());
                 SetThreadpoolTimer(timer, &FILETIME::default(), 0, 0);
-                let timer = CreateThreadpoolTimer(Some(toggle_highlight), core::mem::transmute(adjacent_window), std::ptr::null());
-                let mut clear_time = FILETIME::default();
-                
-                GetSystemTimeAsFileTime(&mut clear_time);
-                clear_time.dwLowDateTime += 10*1000*100;
-                SetThreadpoolTimer(timer, &clear_time, 0, 0);
             });
         }
         return LRESULT(1);
@@ -333,11 +419,14 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "directional_switching"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "highlight_window"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
+
     unsafe {
         // CoInitializeEx(0, COINIT_APARTMENTTHREADED).ok();
+
+        MAIN_THREAD_ID = GetCurrentThreadId();
 
         let mut waits = WaitList::new();
         let mut current_running_process = HANDLE(0);
