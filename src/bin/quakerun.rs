@@ -247,31 +247,43 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
 
     if CAPSLOCK_PRESSED {
         if press_state == WM_KEYUP {
-            match vk {
-                VK_LEFT => {
-                    let _ = switch::windowgeometry::get_adjacent_window(
-                        GetForegroundWindow(),
-                        switch::windowgeometry::Direction::Left).and_then(set_foreground_window_terminal);
-                },
-                VK_RIGHT => {
-                    let _ = switch::windowgeometry::get_adjacent_window(
-                        GetForegroundWindow(),
-                        switch::windowgeometry::Direction::Right).and_then(set_foreground_window_terminal);
-                },
-                VK_UP => {
-                    let _ = switch::windowgeometry::get_adjacent_window(
-                        GetForegroundWindow(),
-                        switch::windowgeometry::Direction::Up).and_then(set_foreground_window_terminal);
-                },
-                VK_DOWN => {
-                    let _ = switch::windowgeometry::get_adjacent_window(
-                        GetForegroundWindow(),
-                        switch::windowgeometry::Direction::Down).and_then(set_foreground_window_terminal);
-                },
-                _ => {
+            std::thread::spawn(move || {
+                let adjacent_window = match vk {
+                    VK_LEFT => {
+                        switch::windowgeometry::get_adjacent_window(
+                            GetForegroundWindow(),
+                            switch::windowgeometry::Direction::Left)
+                    },
+                    VK_RIGHT => {
+                        switch::windowgeometry::get_adjacent_window(
+                            GetForegroundWindow(),
+                            switch::windowgeometry::Direction::Right)
+                    },
+                    VK_UP => {
+                        switch::windowgeometry::get_adjacent_window(
+                            GetForegroundWindow(),
+                            switch::windowgeometry::Direction::Up)
+                    },
+                    VK_DOWN => {
+                        switch::windowgeometry::get_adjacent_window(
+                            GetForegroundWindow(),
+                            switch::windowgeometry::Direction::Down)
+                    },
+                    _ => {
+                        Err(anyhow::Error::from(Error::from(ERROR_INVALID_PARAMETER)))
+                    }
+                };
 
+                if let Err(_) = adjacent_window {
+                    return;
                 }
-            }
+                
+                let adjacent_window = adjacent_window.unwrap();
+                let _ = set_foreground_window_terminal(adjacent_window);
+                switch::windowgeometry::highlight_window(adjacent_window);
+                Sleep(200);
+                switch::windowgeometry::highlight_window(adjacent_window);
+            });
         }
         return LRESULT(1);
     }
