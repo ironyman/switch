@@ -230,7 +230,11 @@ pub unsafe fn get_candidate_windows() -> Vec<WindowInfo> {
     return WindowInfo::iter_front_to_back().filter_map(WindowInfo::create_from_hwnd).collect::<Vec<WindowInfo>>();
 }
 
-
+// This function inverts pixels of a rectangle around the window so calling it
+// twice will undo the highlight. But if during the first invocation the window 
+// is active and in the second the window is no longer active in then that means
+// the window manager may have cleared the previous highlight which means
+// drawing another highlight will result in another highlight.
 pub unsafe fn highlight_window(window: HWND) {
     let cx_border = GetSystemMetrics(SM_CXBORDER);
     let hdc = GetDC(HWND(0));

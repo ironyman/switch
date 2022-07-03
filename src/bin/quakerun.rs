@@ -7,6 +7,7 @@ use windows::{
     Win32::Graphics::Dwm::*,
     Win32::System::Diagnostics::ToolHelp::*,
     Win32::System::SystemServices::*,
+    Win32::System::SystemInformation::*,
     Win32::System::Console::*,
 };
 
@@ -214,6 +215,14 @@ unsafe extern "system" fn ctrl_handler(ctrltype: u32) -> BOOL {
     return BOOL(1);
 }
 
+unsafe extern "system" fn toggle_highlight(_instance: *mut TP_CALLBACK_INSTANCE, context: *mut ::core::ffi::c_void, _timer: *mut TP_TIMER) {
+    let window = core::mem::transmute::<_, HWND>(context);
+    if GetForegroundWindow() == window {
+        switch::trace!("directional_switching", log::Level::Debug, "toggle_highlight: {:?}", window);
+        switch::windowgeometry::highlight_window(window);
+    }
+}
+
 // Capslock is modifier key for CAP + arrow shortcuts.
 // Shift + CAP is used to toggle capslock.
 unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -280,9 +289,14 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 
                 let adjacent_window = adjacent_window.unwrap();
                 let _ = set_foreground_window_terminal(adjacent_window);
-                switch::windowgeometry::highlight_window(adjacent_window);
-                Sleep(200);
-                switch::windowgeometry::highlight_window(adjacent_window);
+                let timer = CreateThreadpoolTimer(Some(toggle_highlight), core::mem::transmute(adjacent_window), std::ptr::null());
+                SetThreadpoolTimer(timer, &FILETIME::default(), 0, 0);
+                let timer = CreateThreadpoolTimer(Some(toggle_highlight), core::mem::transmute(adjacent_window), std::ptr::null());
+                let mut clear_time = FILETIME::default();
+                
+                GetSystemTimeAsFileTime(&mut clear_time);
+                clear_time.dwLowDateTime += 10*1000*100;
+                SetThreadpoolTimer(timer, &clear_time, 0, 0);
             });
         }
         return LRESULT(1);
