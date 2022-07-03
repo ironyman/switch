@@ -7,7 +7,6 @@ use windows::{
     Win32::Graphics::Gdi::*,
     // Win32::System::Com::*,
     // core::Interface,
-    // core::*,
 };
 
 use crate::log::*;
@@ -40,15 +39,15 @@ unsafe fn is_window_cloaked(window: HWND) -> bool {
 unsafe fn is_normal_window(window: HWND) -> bool {
     let ex_style = WINDOW_EX_STYLE(GetWindowLongW(window, GWL_EXSTYLE) as u32);
     let style = WINDOW_STYLE(GetWindowLongW(window, GWL_STYLE) as u32);
-    let mut window_text: [u16; 512] = [0; 512];
-    let len = GetWindowTextW(window, &mut window_text);
-    let window_text = String::from_utf16_lossy(&window_text[..len as usize]);
+    // let mut window_text: [u16; 512] = [0; 512];
+    // let len = GetWindowTextW(window, &mut window_text);
+    // let window_text = String::from_utf16_lossy(&window_text[..len as usize]);
 
     return (ex_style & WS_EX_NOACTIVATE).0 == 0 &&
        (ex_style & WS_EX_TOOLWINDOW).0 == 0 &&
        (style & WS_POPUP).0 == 0 &&
-       (style & WS_CHILD).0 == 0 &&
-       window_text.len() != 0;
+       (style & WS_CHILD).0 == 0; // &&
+    //    window_text.len() != 0;
 }
 
 unsafe fn is_window_visible(window: HWND) -> bool {
@@ -235,6 +234,7 @@ pub unsafe fn get_candidate_windows() -> Vec<WindowInfo> {
 // is active and in the second the window is no longer active in then that means
 // the window manager may have cleared the previous highlight which means
 // drawing another highlight will result in another highlight.
+// Use create_highlight_window instead.
 pub unsafe fn highlight_window(window: HWND) {
     let cx_border = GetSystemMetrics(SM_CXBORDER);
     let hdc = GetDC(HWND(0));
