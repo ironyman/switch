@@ -1,11 +1,13 @@
 use windows::{
     Win32::Foundation::*,
     Win32::UI::WindowsAndMessaging::*,
+    Win32::UI::HiDpi::*,
     // Win32::UI::Shell::*,
     Win32::Graphics::Dwm::*,
     Win32::Graphics::Gdi::*,
     // Win32::System::Com::*,
     // core::Interface,
+    // core::*,
 };
 
 use crate::log::*;
@@ -228,6 +230,107 @@ pub unsafe fn get_candidate_windows() -> Vec<WindowInfo> {
     return WindowInfo::iter_front_to_back().filter_map(WindowInfo::create_from_hwnd).collect::<Vec<WindowInfo>>();
 }
 
+
+pub unsafe fn highlight_window(window: HWND) {
+    let cx_border = GetSystemMetrics(SM_CXBORDER);
+    let hdc = GetDC(HWND(0));
+
+    let pen = CreatePen(PS_INSIDEFRAME, 3*cx_border, 0);
+    let old_pen = SelectObject(hdc, pen);
+    let old_brush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    
+    SetROP2(hdc, R2_NOT);
+
+    let mut rc: RECT = std::mem::zeroed();
+    GetWindowRect(window, &mut rc);
+    if rc.right - rc.left == 0 || rc.bottom - rc.top == 0 {
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+        DeleteObject(pen);
+        ReleaseDC(HWND(0), hdc);
+        return;
+    }
+
+    // https://docs.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    // Window rect units in DIPS, GDI units  in pixels, convert to pixels.
+    let dpi_scale = GetDpiForWindow(window) as f32 / 96f32;
+    rc.left = (rc.left as f32 * dpi_scale) as i32;
+    rc.right = (rc.right as f32 * dpi_scale) as i32;
+    rc.top = (rc.top as f32 * dpi_scale) as i32;
+    rc.bottom = (rc.bottom as f32 * dpi_scale) as i32;
+
+    crate::trace!("directional_switching", log::Level::Debug, "highlight_window: {:?}", rc);
+    
+    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+
+    SelectObject(hdc, old_pen);
+    SelectObject(hdc, old_brush);
+    DeleteObject(pen);
+    ReleaseDC(HWND(0), hdc);
+}
+
+pub unsafe fn highlight_window3(window: HWND, invalidate: bool) {
+    let hdc = GetDC(HWND(0));
+
+    let mut rc: RECT = std::mem::zeroed();
+    GetWindowRect(window, &mut rc);
+    if rc.right - rc.left == 0 || rc.bottom - rc.top == 0 {
+        return;
+    }
+
+    // https://docs.microsoft.com/en-us/windows/win32/learnwin32/dpi-and-device-independent-pixels
+    // Window rect units in DIPS, GDI units  in pixels, convert to pixels.
+    let dpi_scale = GetDpiForWindow(window) as f32 / 96f32;
+    rc.left = (rc.left as f32 * dpi_scale) as i32;
+    rc.right = (rc.right as f32 * dpi_scale) as i32;
+    rc.top = (rc.top as f32 * dpi_scale) as i32;
+    rc.bottom = (rc.bottom as f32 * dpi_scale) as i32;
+
+    crate::trace!("directional_switching", log::Level::Debug, "highlight_window: {:?}", rc);
+    
+    // https://docs.microsoft.com/en-us/windows/win32/gdi/colorref
+    let black = CreateSolidBrush(0);
+
+    if !invalidate {
+        FrameRect(hdc, &rc, black);
+    } else {
+        // InvalidateRect causes window to flash as it's repainted, undesirable
+        // PostMessageA(adjacent_window, WM_PAINT, WPARAM(0), LPARAM(0));
+        InvalidateRect(HWND(0), &rc, BOOL(0));
+    }
+
+    // FillRect(hdc, &rc, black);
+    ReleaseDC(HWND(0), hdc);
+}
+
+pub unsafe fn highlight_window2(window: HWND) {
+    // https://www.codeproject.com/Articles/1988/Guide-to-WIN32-Paint-for-beginners
+    // https://docs.microsoft.com/en-us/windows/win32/gdi/using-multiple-monitors-as-independent-displays?redirectedfrom=MSDN
+    // https://stackoverflow.com/questions/695897/drawing-over-all-windows-on-multiple-monitors
+    let hdc = GetDC(HWND(0));
+    // let hdc = CreateDCA(PCSTR(b"\\\\.\\DISPLAY1".as_ptr()), PCSTR(std::ptr::null()), PCSTR(std::ptr::null()), std::ptr::null());
+    // let hdc = CreateDCA(PCSTR(b"\\\\.\\DISPLAY".as_ptr()), PCSTR(std::ptr::null()), PCSTR(std::ptr::null()), std::ptr::null());
+    // None of those dcs make a difference.
+
+    let mut rc: RECT = std::mem::zeroed();
+    GetWindowRect(window, &mut rc);
+    if rc.right - rc.left == 0 || rc.bottom - rc.top == 0 {
+        return;
+    }
+
+    crate::trace!("directional_switching", log::Level::Debug, "highlight_window: {:?}", rc);
+    rc.left = 0;
+    rc.right = 1440;
+    rc.top = 0;
+    rc.bottom = 960;
+    // https://docs.microsoft.com/en-us/windows/win32/gdi/colorref
+    let black = CreateSolidBrush(0);
+
+    FillRect(hdc, &rc, black);
+    // FrameRect(hdc, &rc, black);
+    ReleaseDC(HWND(0), hdc);
+}
+
 pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> anyhow::Result<HWND> {
     let mut windows = get_candidate_windows();
 
@@ -245,7 +348,7 @@ pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> anyhow::
     let adjacent = windows.iter()
         .filter(|&w| w.visible_percent >= 50)
         .filter(|&w| w.hwnd != from_window)
-        .filter(|&w| unsafe { !IsIconic(w.hwnd).as_bool() } )
+        .filter(|&w| !IsIconic(w.hwnd).as_bool())
         .fold(None, |accumulator: Option<&WindowInfo>, item| {
         // if (dir == Direction::Left && item.visible_centroid.x > from_window_info.visible_centroid.x) ||
         //     (dir == Direction::Right && item.visible_centroid.x < from_window_info.visible_centroid.x) ||
