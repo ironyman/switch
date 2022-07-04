@@ -3,7 +3,8 @@ use std::io::Write;
 use windows::Win32::System::Environment::*;
 use windows::core::*;
 use windows::Win32::System::WinRT::*;
-use windows::Management::Deployment::*;
+// Used implicitly.
+// use windows::Management::Deployment::*;
 use serde::{Serialize, Deserialize};
 use switch::log::*;
 
@@ -12,35 +13,35 @@ use switch::log::*;
 struct IndexRoot {
     path: &'static str,
     // path2: &'static std::ffi::OsStr,
-    kind: AppKind,
+    // kind: AppKind,
     max_depth: i32,
 }
-
-enum AppKind {
-    Exe,
-    Appx,
-}
+// Appx should be queried with winrt and not by fs enumeration.
+// enum AppKind {
+//     Exe,
+//     Appx,
+// }
 
 const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
     IndexRoot {
         path: "%SystemRoot%\\system32\\\0",
         // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
-        kind: AppKind::Exe,
+        // kind: AppKind::Exe,
         max_depth: 0,
     },
     IndexRoot {
         path: "%ProgramData%\\Microsoft\\Windows\\Start Menu\\\0",
-        kind: AppKind::Exe,
+        // kind: AppKind::Exe,
         max_depth: 99,
     },
     IndexRoot {
         path: "%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\\0",
-        kind: AppKind::Exe,
+        // kind: AppKind::Exe,
         max_depth: 99,
     },
     IndexRoot {
         path: "%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps\\\0",
-        kind: AppKind::Exe,
+        // kind: AppKind::Exe,
         max_depth: 0,
     },
     
@@ -148,25 +149,74 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
     return Ok(apps);
 }
 
+// Activating this factory requires high integrity level some reason.
 unsafe fn index_appx() -> anyhow::Result<Vec<AppEntry>> {
     let mut apps: Vec<AppEntry> = vec![];
     RoInitialize(RO_INIT_SINGLETHREADED)?;
     
     // https://github.com/tpn/winsdk-10/blob/master/Include/10.0.16299.0/winrt/windows.management.deployment.h
     // definition of RuntimeClass_Windows_Management_Deployment_PackageManager is following
-    let class_id = "Windows.Management.Deployment.PackageManager\0".encode_utf16().collect::<Vec<u16>>();
+    let class_id = "Windows.Management.Deployment.PackageManager".encode_utf16().collect::<Vec<u16>>();
     let class_id = WindowsCreateString(&class_id)?;
-    // let af: windows::core::IActivationFactory = core::mem::zeroed();
-
-    switch::trace!("indexer", log::Level::Info, "created class_id");
-
     let af: windows::core::IActivationFactory = RoGetActivationFactory(class_id)?;
     // let pi: windows::core::IInspectable = af.ActivateInstance()?;
     // let pm: windows::Management::Deployment::IPackageManager = pi.into();
-    switch::trace!("indexer", log::Level::Info, "created af");
-
     let pm: windows::Management::Deployment::PackageManager = af.ActivateInstance()?;
     let packages = pm.FindPackages()?;
+    for p in packages {
+        // Oh my rust...
+
+        // println!("{:?}", p.DisplayName()?);
+        // println!("{:?}", p.Id()?.Name());
+        // println!("{:?}", p.Id()?.PublisherId());
+
+        let path = match p.InstalledPath() {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+
+        let display_name = match p.DisplayName() {
+            Ok(name) => name,
+            Err(_) => continue,
+        };
+
+        let identity_id  = match p.Id() {
+            Ok(p) => match p.Name() {
+                Ok(name) => name,
+                Err(_) => continue,
+            },
+            Err(_) => continue,
+        };
+
+        let publisher_id  = match p.Id() {
+            Ok(p) => match p.PublisherId() {
+                Ok(id) => id,
+                Err(_) => continue,
+            },
+            Err(_) => continue,
+        };
+
+        for app in p.GetAppListEntries()? {
+            // println!("{:?}", app.AppInfo()?.Id()?.to_string());
+            let app_id = match app.AppInfo() {
+                Ok(appinfo) => match appinfo.Id() {
+                    Ok(id) => id.to_string(),
+                    Err(_) => continue,
+                },
+                Err(_) => continue,
+            };
+
+            apps.push(AppEntry {
+                name: display_name.to_string_lossy() + " (" + &app_id + ")",
+                exe_info: AppExecutableInfo::Appx {
+                    path: path.to_string_lossy(),
+                    identity_id: identity_id.to_string_lossy(),
+                    publisher_id: publisher_id.to_string_lossy(),
+                    application_id: app_id,
+                }
+            });
+        }
+    }
     return Ok(apps);
 }
 
