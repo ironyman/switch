@@ -5,8 +5,8 @@ use windows::core::*;
 use windows::Win32::System::WinRT::*;
 // Used implicitly.
 // use windows::Management::Deployment::*;
-use serde::{Serialize, Deserialize};
 use switch::log::*;
+use switch::startappsprovider::{AppEntry, AppExecutableInfo};
 
 // const DEFAULT_THREADS: u32 = 256;
 
@@ -58,33 +58,6 @@ const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
     // },
 ];
 
-#[derive(Serialize, Deserialize, Debug)]
-enum AppExecutableInfo {
-    // Includes links, msc, exes, things you can pass path to ShellExecute to start
-    Exe {
-        path: String
-    },
-    // UWP/UAP apps, list with get-appxpackage, have to pass shell:AppsFolder\stuff to ShellExecute
-    Appx {
-        path: String,
-        identity_id: String,
-        publisher_id: String,
-        application_id: String,
-    },
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct AppEntry {
-    name: String,
-    exe_info: AppExecutableInfo,
-}
-
-impl Default for AppEntry {
-    fn default() -> Self {
-        return AppEntry { name: "".into(), exe_info: AppExecutableInfo::Exe { path: "".into() } };
-    }
-}
-
 fn visit_directories<IntoPath>(root: IntoPath, cb: &mut dyn FnMut(&std::fs::DirEntry), max_depth: i32) -> std::io::Result<()>
 where IntoPath: Into<std::path::PathBuf> {
     if max_depth < 0 {
@@ -112,6 +85,7 @@ fn save_apps(apps: &Vec<AppEntry>) -> anyhow::Result<()> {
     let path = switch::log::get_app_data_path("apps.json")?;
     let mut file = std::fs::File::create(path)?;
     file.write_all(serde_json::to_string(&apps)?.as_bytes())?;
+    file.sync_all()?;
     return Ok(());
 }
 
@@ -128,6 +102,7 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
             name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
             exe_info: AppExecutableInfo::Exe {
                 path: de.path().to_str().unwrap().into(),
+                ext: extension,
             }
         })
     };
