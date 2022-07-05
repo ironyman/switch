@@ -242,7 +242,7 @@ pub unsafe fn highlight_window(window: HWND) {
     let pen = CreatePen(PS_INSIDEFRAME, 3*cx_border, 0);
     let old_pen = SelectObject(hdc, pen);
     let old_brush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    
+
     SetROP2(hdc, R2_NOT);
 
     let mut rc: RECT = std::mem::zeroed();
@@ -264,7 +264,7 @@ pub unsafe fn highlight_window(window: HWND) {
     rc.bottom = (rc.bottom as f32 * dpi_scale) as i32;
 
     crate::trace!("directional_switching", log::Level::Debug, "highlight_window: {:?}", rc);
-    
+
     Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
 
     SelectObject(hdc, old_pen);
@@ -444,7 +444,7 @@ fn enumerate_windows() {
     crate::log::initialize_test_log(log::Level::Debug, &["directional_switching", "calculate_visibility"]).unwrap();
     crate::trace!("directional_switching", log::Level::Info, "found windows {:?}", windows);
     unsafe { calculate_visibility(&mut windows) };
-    
+
     let visible_windows = windows.iter().filter(|&w| w.visible_percent > 49).cloned().collect::<Vec<WindowInfo>>();
     // println!("{:?}", visible_windows);
     crate::trace!("directional_switching", log::Level::Info, "visible windows {:?}", visible_windows);

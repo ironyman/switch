@@ -45,6 +45,7 @@ features = [
     "Foundation_Collections",
     "Foundation",
     "ApplicationModel",
+    "ApplicationModel_Core",
     "Management_Deployment_Preview",
     "Management_Deployment",
 ]
