@@ -10,6 +10,12 @@ use windows::{
     Win32::System::SystemServices::*,
     Win32::System::SystemInformation::*,
     Win32::System::Console::*,
+    Win32::Storage::FileSystem::*,
+    Win32::Security::Authorization::*,
+    Win32::Security::*,
+    Win32::System::IO::*,
+    Win32::System::Memory::*,
+    Win32::System::Pipes::*,
 };
 
 use clap::{Arg, Command};
@@ -29,8 +35,11 @@ const HIDE_QUAKE_EVENT_NAME: &str = "HideQuake";
 const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
 const RUN_QUAKE_EVENT_NAME: &str = "RunQuake";
 
+// const WM_START_SWITCH: u32 = WM_USER + 1;
+
 static mut HOOK_HANDLE: HHOOK = HHOOK(0);
-static mut MAIN_THREAD_ID: u32 = 0u32;
+static mut START_SWITCH_WRITE: HANDLE = HANDLE(0);
+// static mut MAIN_THREAD_ID: u32 = 0u32;
 
 unsafe fn create_process(cmdline: String) -> Result<u32> {
     let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
@@ -349,6 +358,24 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
     if CAPSLOCK_PRESSED {
         if press_state == WM_KEYUP {
             std::thread::spawn(move || {
+                if vk == VK_P {
+                    let arg = "--mode startapps";
+                    // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
+                    // let buf = std::alloc::alloc(layout);
+                    // unsafe { PostThreadMessageA(MAIN_THREAD_ID, WM_START_SWITCH, WPARAM(buf as usize), LPARAM(0)); }
+                    switch::trace!("hotkey", log::Level::Info, "cap + p pressed");
+                    let mut written = 0u32;
+                    WriteFile(
+                        START_SWITCH_WRITE,
+                        arg.as_bytes().as_ptr() as _,
+                        arg.len() as u32,
+                        &mut written,
+                        std::ptr::null_mut());
+                    assert!(written as usize == arg.len());
+                    switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
+                    return;
+                }
+
                 let adjacent_window = match vk {
                     VK_LEFT => {
                         switch::windowgeometry::get_adjacent_window(
@@ -419,14 +446,14 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "highlight_window"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "hotkey"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
     unsafe {
         // CoInitializeEx(0, COINIT_APARTMENTTHREADED).ok();
 
-        MAIN_THREAD_ID = GetCurrentThreadId();
+        // MAIN_THREAD_ID = GetCurrentThreadId();
 
         let mut waits = WaitList::new();
         let mut current_running_process = HANDLE(0);
@@ -466,6 +493,63 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         );
         assert!(waits.add(hide_quake_event));
 
+        // Starting waiting for "start switch" messages.
+        // let mut start_switch_read = HANDLE(0);
+        let mut buf = [0u8; 256];
+        let mut overlapped = windows::Win32::System::IO::OVERLAPPED::default();
+        overlapped.hEvent = CreateEventW(
+            std::ptr::null(),
+            BOOL(1),
+            BOOL(0),
+            PCWSTR(std::ptr::null()),
+        );
+        let mut sa = windows::Win32::Security::SECURITY_ATTRIBUTES::default();
+        sa.nLength = std::mem::size_of::<windows::Win32::Security::SECURITY_ATTRIBUTES>() as u32;
+        // owner builtin admin, group system, admin access full, everyone, deny full
+        let dacl = "O:BAG:SYD:(A;OICI;GA;;;BA)(D;;FA;;;WD)\0";
+        ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            PCSTR(dacl.as_ptr()),
+            SDDL_REVISION_1,
+            &mut (sa.lpSecurityDescriptor as *mut SECURITY_DESCRIPTOR),
+            std::ptr::null_mut());
+        let start_switch_read = CreateNamedPipeA(
+            PCSTR("\\\\.\\Pipe\\QuakeTerminalRunner\0".as_ptr()),
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_MESSAGE,
+            1,
+            4096,
+            4096,
+            0,
+            &sa);
+        START_SWITCH_WRITE = CreateFileA(
+            PCSTR("\\\\.\\Pipe\\QuakeTerminalRunner\0".as_ptr()),
+            FILE_GENERIC_WRITE,
+            FILE_SHARE_NONE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE(0));
+
+        LocalFree(sa.lpSecurityDescriptor as isize);
+
+        // CreatePipe(&mut start_switch_read, &mut START_SWITCH_WRITE, std::ptr::null(), 0);
+        // let mode = PIPE_NOWAIT;
+        // SetNamedPipeHandleState(
+        //     start_switch_read,
+        //     &mode,
+        //     std::ptr::null(),
+        //     std::ptr::null());
+        
+        let res = ReadFile(start_switch_read, 
+            buf.as_mut_ptr() as _, 
+            buf.len() as u32,
+            std::ptr::null_mut(),
+            &mut overlapped);
+        switch::trace!("init", log::Level::Info, "ReadFile gle {} ret {}", GetLastError().0, res.0);
+        assert!(GetLastError() == ERROR_IO_PENDING);
+        SetLastError(NO_ERROR);
+        assert!(waits.add(overlapped.hEvent));
+
         let terminal_pid = windowprovider::getppid(GetCurrentProcessId());
         let quake_window = get_process_window(terminal_pid)?;
         configure_quake_window(quake_window)?;
@@ -484,6 +568,8 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
             match waits.wait() {
                 WaitResult::Handle(h) => {
                     if h == run_quake_event {
+                        // not using this anymore.
+                        // continue;
                         switch::console::clear_console()?;
 
                         let pid = create_process(command.into());
@@ -526,6 +612,41 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         waits.remove(current_running_process);
                         current_running_process = HANDLE(0);
                         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                    } else if h == overlapped.hEvent {
+                        switch::trace!("hotkey", log::Level::Info, "cap + p event read");
+                        if !current_running_process.is_invalid() {
+                            set_foreground_window_terminal(quake_window)?;
+                            continue;
+                        }
+
+                        switch::console::clear_console()?;
+
+                        let mut buf_read = 0u32;
+                        GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
+
+                        let pid = create_process(format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap()));
+
+                        let pid = if pid.is_err() {
+                            set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                            // ResetEvent(run_quake_event);
+                            continue
+                        } else {
+                            pid.unwrap()
+                        };
+
+                        current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
+                        waits.add(current_running_process);
+                        // ResetEvent(run_quake_event);
+                        set_foreground_window_terminal(quake_window)?;
+
+                        // Read for the next command.
+                        ReadFile(start_switch_read, 
+                            buf.as_mut_ptr() as _, 
+                            buf.len() as u32,
+                            std::ptr::null_mut(),
+                            &mut overlapped);
+                        assert!(GetLastError() == ERROR_IO_PENDING);
+                        SetLastError(NO_ERROR);
                     } else {
                         assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
                     }
@@ -536,13 +657,25 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
                                 switch::trace!("hotkey", log::Level::Info, "Hotkey pressed!");
-
+                                // let arg = "--mode window\0";
+                                // let mut written = 0u32;
+                                // WriteFile(
+                                //     START_SWITCH_WRITE,
+                                //     arg.as_bytes().as_ptr() as _,
+                                //     arg.len() as u32,
+                                //     &mut written,
+                                //     std::ptr::null_mut());
+                                // assert!(written as usize == arg.len());
+            
                                 if current_running_process.is_invalid() {
                                     SetEvent(run_quake_event);
                                 } else {
                                     set_foreground_window_terminal(quake_window)?;
                                 }
                             },
+                            // WM_START_SWITCH => {
+                            //     panic!("LOL do I really run commands received from window messages");
+                            // }
                             _ => {
                                 TranslateMessage(&msg);
                                 DispatchMessageW(&msg);
@@ -558,7 +691,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         UnhookWindowsHookEx(HOOK_HANDLE);
         UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
-
+        CloseHandle(overlapped.hEvent);
         CloseHandle(should_exit_event);
         CloseHandle(run_quake_event);
         CloseHandle(open_quake_event);

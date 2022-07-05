@@ -74,7 +74,6 @@ impl Clone for WindowInfo {
         // https://stackoverflow.com/questions/66611678/malloc-an-array-with-rust-layout
         let buf = vec![0u8; bytes as usize];
         let mut region: Box<RGNDATA> = unsafe { std::mem::transmute(buf.as_ptr()) };
-        std::mem::forget(buf);
 
         unsafe { GetRegionData(self.visible_region, bytes, region.as_mut()); }
         let cloned_region = unsafe { ExtCreateRegion(std::ptr::null(), bytes, region.as_ref()) };
@@ -89,6 +88,7 @@ impl Clone for WindowInfo {
             window_text: self.window_text.clone(),
         };
 
+        std::mem::forget(region);
         return new;
     }
 
@@ -521,7 +521,6 @@ unsafe fn calculate_visibility(windows: &mut Vec<WindowInfo>) {
         // https://stackoverflow.com/questions/66611678/malloc-an-array-with-rust-layout
         let buf = vec![0u8; bytes as usize];
         let mut region: Box<RGNDATA> = std::mem::transmute(buf.as_ptr());
-        std::mem::forget(buf);
 
         GetRegionData(windows[i].visible_region, bytes, region.as_mut());
         let total_area = rect_area(&windows[i].rc);
@@ -553,6 +552,9 @@ unsafe fn calculate_visibility(windows: &mut Vec<WindowInfo>) {
 
         windows[i].visible_percent = (100 * visible_area / total_area) as i32;
         crate::trace!("calculate_visibility", log::Level::Info, "{} size {} {}, {:?}", windows[i].window_text, visible_area, total_area, windows[i].visible_centroid);
+
+        // region: Box<RGNDATA> does not know how much to free.
+        std::mem::forget(region);
         std::mem::forget(rcs);
     }
 }
