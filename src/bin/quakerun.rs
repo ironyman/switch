@@ -476,6 +476,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         SetConsoleCtrlHandler(Some(ctrl_handler), BOOL(1));
 
+        // TODO remove this event. And maybe other events.
         let run_quake_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
