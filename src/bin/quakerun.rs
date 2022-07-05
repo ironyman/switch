@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use windows::{
     core::*,
     Win32::Foundation::*,
@@ -447,10 +449,22 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
     return Ok(());
 }
 
+fn initialize_index() {
+    let mut indexer_path = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
+    indexer_path.push("indexer.exe");
+    let output = std::process::Command::new(indexer_path.as_os_str().to_str().unwrap().to_owned()).output().unwrap();
+    
+    println!("status: {}", output.status);
+    std::io::stdout().write_all(&output.stdout).unwrap();
+    std::io::stderr().write_all(&output.stderr).unwrap();
+}
+
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
     switch::log::initialize_log(log::Level::Debug, &["init", "hotkey"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
+
+    initialize_index();
 
     unsafe {
         // CoInitializeEx(0, COINIT_APARTMENTTHREADED).ok();
