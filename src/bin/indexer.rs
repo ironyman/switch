@@ -24,6 +24,12 @@ struct IndexRoot {
 
 const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
     IndexRoot {
+        path: "%SystemRoot%\\\0",
+        // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
+        // kind: AppKind::Exe,
+        max_depth: 0,
+    },
+    IndexRoot {
         path: "%SystemRoot%\\system32\\\0",
         // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
         // kind: AppKind::Exe,
