@@ -338,6 +338,7 @@ fn run_app<B: Backend>(
                     app.screen_width = width;
                     app.screen_height = height;
                     unsafe {
+                        terminal.clear()?;
                         console::clear_console()?;
                     }
                 },
