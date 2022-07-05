@@ -356,26 +356,28 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
     }
 
     if CAPSLOCK_PRESSED {
+        if press_state == WM_KEYDOWN && vk == VK_P {
+            std::thread::spawn(move || {
+                let arg = "--mode startapps";
+                // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
+                // let buf = std::alloc::alloc(layout);
+                // unsafe { PostThreadMessageA(MAIN_THREAD_ID, WM_START_SWITCH, WPARAM(buf as usize), LPARAM(0)); }
+                switch::trace!("hotkey", log::Level::Info, "cap + p pressed");
+                let mut written = 0u32;
+                WriteFile(
+                    START_SWITCH_WRITE,
+                    arg.as_bytes().as_ptr() as _,
+                    arg.len() as u32,
+                    &mut written,
+                    std::ptr::null_mut());
+                assert!(written as usize == arg.len());
+                switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
+                return;
+            });
+        }
+
         if press_state == WM_KEYUP {
             std::thread::spawn(move || {
-                if vk == VK_P {
-                    let arg = "--mode startapps";
-                    // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
-                    // let buf = std::alloc::alloc(layout);
-                    // unsafe { PostThreadMessageA(MAIN_THREAD_ID, WM_START_SWITCH, WPARAM(buf as usize), LPARAM(0)); }
-                    switch::trace!("hotkey", log::Level::Info, "cap + p pressed");
-                    let mut written = 0u32;
-                    WriteFile(
-                        START_SWITCH_WRITE,
-                        arg.as_bytes().as_ptr() as _,
-                        arg.len() as u32,
-                        &mut written,
-                        std::ptr::null_mut());
-                    assert!(written as usize == arg.len());
-                    switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
-                    return;
-                }
-
                 let adjacent_window = match vk {
                     VK_LEFT => {
                         switch::windowgeometry::get_adjacent_window(
@@ -614,30 +616,25 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                     } else if h == overlapped.hEvent {
                         switch::trace!("hotkey", log::Level::Info, "cap + p event read");
-                        if !current_running_process.is_invalid() {
-                            set_foreground_window_terminal(quake_window)?;
-                            continue;
-                        }
-
-                        // switch::console::clear_console()?;
-
-                        let mut buf_read = 0u32;
-                        GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
-
-                        let pid = create_process(format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap()));
-
-                        let pid = if pid.is_err() {
-                            set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                        if current_running_process.is_invalid() {
+                            let mut buf_read = 0u32;
+                            GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
+    
+                            let pid = create_process(format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap()));
+    
+                            let pid = if pid.is_err() {
+                                set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                                // ResetEvent(run_quake_event);
+                                continue
+                            } else {
+                                pid.unwrap()
+                            };
+    
+                            current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
+                            waits.add(current_running_process);
                             // ResetEvent(run_quake_event);
-                            continue
-                        } else {
-                            pid.unwrap()
-                        };
-
-                        current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
-                        waits.add(current_running_process);
-                        // ResetEvent(run_quake_event);
-                        set_foreground_window_terminal(quake_window)?;
+                            set_foreground_window_terminal(quake_window)?;
+                        }
 
                         // Read for the next command.
                         ReadFile(start_switch_read, 
@@ -657,21 +654,21 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
                                 switch::trace!("hotkey", log::Level::Info, "Hotkey pressed!");
-                                // let arg = "--mode window\0";
-                                // let mut written = 0u32;
-                                // WriteFile(
-                                //     START_SWITCH_WRITE,
-                                //     arg.as_bytes().as_ptr() as _,
-                                //     arg.len() as u32,
-                                //     &mut written,
-                                //     std::ptr::null_mut());
-                                // assert!(written as usize == arg.len());
+                                let arg = "--mode window\0";
+                                let mut written = 0u32;
+                                WriteFile(
+                                    START_SWITCH_WRITE,
+                                    arg.as_bytes().as_ptr() as _,
+                                    arg.len() as u32,
+                                    &mut written,
+                                    std::ptr::null_mut());
+                                assert!(written as usize == arg.len());
             
-                                if current_running_process.is_invalid() {
-                                    SetEvent(run_quake_event);
-                                } else {
-                                    set_foreground_window_terminal(quake_window)?;
-                                }
+                                // if current_running_process.is_invalid() {
+                                //     SetEvent(run_quake_event);
+                                // } else {
+                                //     set_foreground_window_terminal(quake_window)?;
+                                // }
                             },
                             // WM_START_SWITCH => {
                             //     panic!("LOL do I really run commands received from window messages");
