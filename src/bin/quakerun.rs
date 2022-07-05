@@ -648,8 +648,8 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
                             waits.add(current_running_process);
                             // ResetEvent(run_quake_event);
-                            set_foreground_window_terminal(quake_window)?;
                         }
+                        set_foreground_window_terminal(quake_window)?;
 
                         // Read for the next command.
                         ReadFile(start_switch_read, 
