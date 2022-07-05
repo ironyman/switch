@@ -16,6 +16,7 @@ use tui::{
     widgets::{Block, Borders, List, ListItem, ListState},
     Frame, Terminal,
 };
+use clap::{Arg, Command};
 
 use switch::{
     ListContentProvider,
@@ -183,6 +184,15 @@ impl Drop for SearchableListApp {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let matches = Command::new("switch")
+        .arg(Arg::new("mode")
+            .short('m')
+            .long("mode")
+            .help("Start in mode window or startapps")
+            .value_name("MODE")
+            .takes_value(true))
+        .get_matches();
+
     // setup terminal
     enable_raw_mode()?;
 
@@ -217,9 +227,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         StartAppsProvider::new(),
     ], screen_width, screen_height);
 
-    app.list_next();
-    if app.current_provider().get_filtered_list().len() > 1 {
+    let selected_mode = matches.value_of("mode").unwrap_or("window");
+    if selected_mode == "window" {
         app.list_next();
+        if app.current_provider().get_filtered_list().len() > 1 {
+            app.list_next();
+        }
+    } else if selected_mode == "startapps" {
+        app.next_provider();
     }
 
     let res = run_app(&mut terminal, app, tick_rate);

@@ -6,10 +6,12 @@ $files = (
     ".\target\release\noconsole.exe",
     ".\target\release\quakerun.exe",
     ".\target\release\switch.exe"
+    ".\target\release\indexer.exe"
 )
 $unshim = (
     "$PSScriptRoot\tools\noconsole.exe.ignore",
     "$PSScriptRoot\tools\switch.exe.ignore"
+    "$PSScriptRoot\tools\indexer.exe.ignore"
 )
 
 rm -recurse -force $PSScriptRoot\tools\
