@@ -570,7 +570,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                     if h == run_quake_event {
                         // not using this anymore.
                         // continue;
-                        switch::console::clear_console()?;
+                        // switch::console::clear_console()?;
 
                         let pid = create_process(command.into());
 
@@ -619,7 +619,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             continue;
                         }
 
-                        switch::console::clear_console()?;
+                        // switch::console::clear_console()?;
 
                         let mut buf_read = 0u32;
                         GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
@@ -754,7 +754,7 @@ fn main() -> anyhow::Result<()> {
         return quake_terminal_runner(matches.value_of("command").unwrap());
     }
 
-    unsafe {  
+    unsafe {
         SetLastError(NO_ERROR);
 
         let should_exit_event = CreateEventW(
