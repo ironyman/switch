@@ -64,7 +64,10 @@ impl<'a> SearchableListApp {
     }
 
     fn next_provider(&mut self) {
-        self.selected_provider = if self.selected_provider >= self.providers.len() {
+        self.list_state = ListState::default();
+        self.input_buffer.clear();
+        self.set_filter("".into());
+        self.selected_provider = if self.selected_provider >= self.providers.len() - 1 {
             0
         } else {
             self.selected_provider + 1
@@ -78,6 +81,10 @@ impl<'a> SearchableListApp {
     fn list_next(&mut self) {
         // let list = self.list.len();
         let list = self.current_provider().get_filtered_list();
+        if list.len() == 0 {
+            return;
+        }
+
         let i = match self.list_state.selected() {
             Some(i) => {
                 if i >= list.len() - 1 {
@@ -94,6 +101,9 @@ impl<'a> SearchableListApp {
     fn list_previous(&mut self) {
         // let list = self.list.len();
         let list = self.current_provider().get_filtered_list();
+        if list.len() == 0 {
+            return;
+        }
 
         let i = match self.list_state.selected() {
             Some(i) => {
@@ -101,6 +111,48 @@ impl<'a> SearchableListApp {
                     list.len() - 1
                 } else {
                     i - 1
+                }
+            }
+            None => 0,
+        };
+        self.list_state.select(Some(i));
+    }
+
+    fn list_page_next(&mut self) {
+        // let list = self.list.len();
+        let list = self.current_provider().get_filtered_list();
+        if list.len() == 0 {
+            return;
+        }
+
+        let i = match self.list_state.selected() {
+            Some(i) => {
+                // -1 for input prompt
+                if i + self.screen_height as usize - 1 >= list.len() {
+                    0
+                } else {
+                    i + self.screen_height as usize - 1
+                }
+            }
+            None => 0,
+        };
+        self.list_state.select(Some(i));
+    }
+
+    fn list_page_prev(&mut self) {
+        // let list = self.list.len();
+        let list = self.current_provider().get_filtered_list();
+        if list.len() == 0 {
+            return;
+        }
+
+        let i = match self.list_state.selected() {
+            Some(i) => {
+                // -1 for input prompt
+                if i as isize - (self.screen_height as isize - 1) < 0 {
+                    list.len() - 1
+                } else {
+                    i - (self.screen_height as usize - 1)
                 }
             }
             None => 0,
@@ -140,10 +192,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         EnableMouseCapture,
         crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
     )?;
+
     // If window is resized then redrawing will draw more stuff and cause terminal to scroll.
-    // Disable scrolling by clearing terminal buffer. By the way crossterm::terminal::Clear
-    // So we do it ourselves.
+    // Disable scrolling by clearing terminal buffer. By the way crossterm::terminal::Clear doesn't work,
+    // so we do it ourselves.
+    // Note this also clears crash messages, so comment this when debugging.
     unsafe {
+        console::enable_vt_mode();
         console::clear_console()?;
     }
 
@@ -251,6 +306,15 @@ fn run_app<B: Backend>(
                             // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
                             app.current_provider().activate(selected);
                             return Ok(())
+                        },
+                        KeyCode::Tab => {
+                            app.next_provider();
+                        },
+                        KeyCode::PageDown => {
+                            app.list_page_next();
+                        },
+                        KeyCode::PageUp => {
+                            app.list_page_prev();
                         }
                         _ => {}
                     }
