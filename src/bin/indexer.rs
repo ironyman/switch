@@ -3,12 +3,55 @@ use std::io::Write;
 use windows::Win32::System::Environment::*;
 use windows::core::*;
 use windows::Win32::System::WinRT::*;
+use windows::Win32::System::Com::*;
+use windows::Win32::Foundation::*;
+use windows::Win32::UI::Shell::*;
 // Used implicitly.
 // use windows::Management::Deployment::*;
 use switch::log::*;
 use switch::startappsprovider::{AppEntry, AppExecutableInfo};
 
+use windows::Win32::System::Ole::*;
+// use windows::Win32::Globalization::*;
+use std::mem::ManuallyDrop;
+
 // const DEFAULT_THREADS: u32 = 256;
+
+
+struct Variant(VARIANT);
+impl Variant {
+    pub fn new(num: VARENUM, contents: VARIANT_0_0_0) -> Variant {
+        Variant {
+            0: VARIANT {
+                Anonymous: VARIANT_0 {
+                    Anonymous: ManuallyDrop::new(VARIANT_0_0 {
+                        vt: num.0 as u16,
+                        wReserved1: 0,
+                        wReserved2: 0,
+                        wReserved3: 0,
+                        Anonymous: contents,
+                    }),
+                },
+            },
+        }
+    }   
+}
+impl From<String> for Variant {
+    fn from(value: String) -> Variant { Variant::new(VT_BSTR, VARIANT_0_0_0 { bstrVal: ManuallyDrop::new(BSTR::from(value)) }) }
+}
+
+impl Drop for Variant {
+    fn drop(&mut self) {
+        match VARENUM(unsafe { self.0.Anonymous.Anonymous.vt as i32 }) {
+            VT_BSTR => unsafe {
+                drop(&mut &self.0.Anonymous.Anonymous.Anonymous.bstrVal)
+            } 
+            _ => {}
+        }
+        unsafe { drop(&mut self.0.Anonymous.Anonymous) }
+    }
+}
+
 
 struct IndexRoot {
     path: &'static str,
@@ -24,18 +67,6 @@ struct IndexRoot {
 
 const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
     IndexRoot {
-        path: "%SystemRoot%\\\0",
-        // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
-        // kind: AppKind::Exe,
-        max_depth: 0,
-    },
-    IndexRoot {
-        path: "%SystemRoot%\\system32\\\0",
-        // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
-        // kind: AppKind::Exe,
-        max_depth: 0,
-    },
-    IndexRoot {
         path: "%ProgramData%\\Microsoft\\Windows\\Start Menu\\\0",
         // kind: AppKind::Exe,
         max_depth: 99,
@@ -50,7 +81,18 @@ const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
         // kind: AppKind::Exe,
         max_depth: 0,
     },
-    
+    IndexRoot {
+        path: "%SystemRoot%\\\0",
+        // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
+        // kind: AppKind::Exe,
+        max_depth: 0,
+    },
+    IndexRoot {
+        path: "%SystemRoot%\\system32\\\0",
+        // path2: std::ffi::OsStr::new("%SystemRoot%\\system32\\"),
+        // kind: AppKind::Exe,
+        max_depth: 0,
+    },
     // IndexRoot {
     //     path: "%ProgramFiles%\\WindowsApps\\\0",
     //     kind: AppKind::Appx,
@@ -99,18 +141,91 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
     let mut apps: Vec<AppEntry> = vec![];
 
     let mut gather_exes = |de: &std::fs::DirEntry| {
-        let valid_extensions = ["exe", "lnk", "msc"];
+        let valid_extensions = ["exe", "lnk", "msc", "cpl"];
         let extension: String = de.path().extension().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().into();
         if !valid_extensions.contains(&&extension[..]) {
             return;
         } 
-        apps.push(AppEntry {
-            name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
-            exe_info: AppExecutableInfo::Exe {
-                path: de.path().to_str().unwrap().into(),
-                ext: extension,
+
+        match &extension[..] {
+            "exe" | "msc" | "cpl" => {
+                apps.push(AppEntry {
+                    name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
+                    path: de.path().to_str().unwrap().into(),
+                    exe_info: AppExecutableInfo::Exe {
+                        ext: extension,
+                    }
+                });
+            },
+            "lnk" => {
+                unsafe {
+                    let shell = CoCreateInstance::<_, IShellDispatch>(
+                        &windows::core::GUID::from_u128(0x13709620_C279_11CE_A49E_444553540000),
+                        None,
+                        CLSCTX_INPROC_SERVER).unwrap();
+                    let dir = de.path().parent().unwrap().to_str().unwrap().to_owned() + "\0";
+                    // let dir = dir.encode_utf16().collect::<Vec<u16>>();
+                    let dir = Variant::from(dir);
+
+                    let folder = match shell.NameSpace(&dir.0) {
+                        Ok(f) => {
+                            f
+                        },
+                        _ => {
+                            return
+                        }
+                    };
+
+                    let file = de.file_name().to_str().unwrap().to_owned() + "\0";
+                    let file = file.encode_utf16().collect::<Vec<u16>>();
+                    let item = match folder.ParseName(BSTR::from_wide(&file)) {
+                        Ok(item) => {
+                            item
+                        },
+                        _ => {
+                            return
+                        }
+                    };
+
+                    let link = match item.GetLink() {
+                        Ok(link) => {
+                        // /// Attempts to cast the current interface to another interface using `QueryInterface`.
+                        // /// The name `cast` is preferred to `query` because there is a WinRT method named query but not one
+                        // /// named cast.
+                        // fn cast<T: Interface>(&self) -> Result<T> {
+                        //     unsafe {
+                        //         let mut result = None;
+
+                        //         (self.assume_vtable::<IUnknown>().QueryInterface)(core::mem::transmute_copy(self), &T::IID, &mut result as *mut _ as _).and_some(result)
+                        //     }
+                        // }
+                            link.cast::<IShellLinkDual>().unwrap()
+                        },
+                        _ => {
+                            return
+                        }
+                    };
+
+
+                    // convert PCSTR to str, lstrlenA uses use windows::Win32::Globalization::*, and "Win32_Globalization"
+                    // let mut target_path = [0u8; 512];
+                    // let _ = link.GetPath(&mut target_path, std::ptr::null_mut(), 0);
+                    // let len = lstrlenA(PCSTR(target_path.as_ptr()));
+                    // let target_path = std::str::from_utf8(&target_path[0..len as usize]).unwrap();
+                    
+                    apps.push(AppEntry {
+                        name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
+                        path: de.path().to_str().unwrap().into(),
+                        exe_info: AppExecutableInfo::Link {
+                            ext: extension,
+                            target_path:  link.Path().unwrap().to_string()
+                        }
+                    });
+                }
+            },
+            _ => {
             }
-        })
+        }
     };
 
     for root in INDEX_DIRECTORIES {
@@ -189,8 +304,8 @@ unsafe fn index_appx() -> anyhow::Result<Vec<AppEntry>> {
 
             apps.push(AppEntry {
                 name: display_name.to_string_lossy() + " (" + &app_id + ")",
+                path: path.to_string_lossy(),
                 exe_info: AppExecutableInfo::Appx {
-                    path: path.to_string_lossy(),
                     identity_id: identity_id.to_string_lossy(),
                     publisher_id: publisher_id.to_string_lossy(),
                     application_id: app_id,
@@ -203,6 +318,11 @@ unsafe fn index_appx() -> anyhow::Result<Vec<AppEntry>> {
 
 fn main() -> anyhow::Result<()> {
     switch::log::initialize_test_log(log::Level::Debug, &["indexer"]).unwrap();
+
+    unsafe {
+        CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED).ok();
+    }
+
     let mut apps = index_exes()?;
     apps.append(unsafe { &mut index_appx()? });
     save_apps(&apps)?;

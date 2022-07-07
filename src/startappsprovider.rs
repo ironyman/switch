@@ -14,14 +14,18 @@ pub struct StartAppsProvider {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum AppExecutableInfo {
-    // Includes links, msc, exes, things you can pass path to ShellExecute to start
+    // Includes msc, cpl, exes, things you can pass path to ShellExecute to start
     Exe {
-        path: String,
         ext: String,
+    },
+    // Referenes to other files, also can be started by passing path to ShellExecute
+    // but we want to save the target_path.
+    Link {
+        ext: String,
+        target_path: String,
     },
     // UWP/UAP apps, list with get-appxpackage, have to pass shell:AppsFolder\stuff to ShellExecute
     Appx {
-        path: String,
         identity_id: String,
         publisher_id: String,
         application_id: String,
@@ -31,15 +35,16 @@ pub enum AppExecutableInfo {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AppEntry {
     pub name: String,
+    pub path: String,
     pub exe_info: AppExecutableInfo,
 }
 
 impl AppEntry {
     fn start(&self) {
         match &self.exe_info {
-            AppExecutableInfo::Exe { path, ext: _ } => {
+            AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
                 unsafe {
-                    let path = (path.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
+                    let path = (self.path.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
                     windows::Win32::UI::Shell::ShellExecuteW(
                         HWND(0),
                         PCWSTR(std::ptr::null()),
@@ -50,7 +55,7 @@ impl AppEntry {
                     );
                 }
             },
-            AppExecutableInfo::Appx { path: _, identity_id, publisher_id, application_id } => {
+            AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
                 unsafe {
                     let path = format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id)
                         .encode_utf16().collect::<Vec<u16>>();
@@ -71,7 +76,7 @@ impl AppEntry {
 
 impl Default for AppEntry {
     fn default() -> Self {
-        return AppEntry { name: "".into(), exe_info: AppExecutableInfo::Exe { path: "".into(), ext: "".into() } };
+        return AppEntry { name: "".into(), path: "".into(), exe_info: AppExecutableInfo::Exe { ext: "".into() } };
     }
 }
 
@@ -145,7 +150,17 @@ impl StartAppsProvider {
         //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
         // }).collect()
         return self.apps.iter().filter(|&app| {
-            return app.name.to_lowercase().contains(&self.filter);
+            if app.name.to_lowercase().contains(&self.filter) {
+                return true;
+            }
+
+            if let AppExecutableInfo::Link{ ext: _, target_path } = &app.exe_info {
+                if target_path.to_lowercase().contains(&self.filter) {
+                    return true;
+                }
+            }
+
+            return false;
         }).collect();
     }
 }
@@ -154,10 +169,13 @@ impl ListContentProvider for StartAppsProvider {
     fn get_filtered_list(&self) -> Vec<String> {
         self.get_filtered_app_list().iter().map(|&app| {
             match &app.exe_info {
-                AppExecutableInfo::Exe { path: _, ext } => {
+                AppExecutableInfo::Exe { ext } => {
                     return app.name.clone() + "." + ext;
                 },
-                AppExecutableInfo::Appx { path: _, identity_id: _, publisher_id: _, application_id: _ } => {
+                AppExecutableInfo::Link { ext, target_path } => {
+                    return app.name.clone() + "." + ext + " (" + target_path + ")";
+                },
+                AppExecutableInfo::Appx { identity_id: _, publisher_id: _, application_id: _ } => {
                     return app.name.clone();
                 }
             }
