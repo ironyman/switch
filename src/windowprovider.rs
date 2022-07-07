@@ -187,7 +187,7 @@ impl WindowProvider {
         })
     }
 
-    fn get_filtered_window_list(&self) -> Vec<&WindowInfo> {
+    pub fn get_filtered_window_list(&self) -> Vec<&WindowInfo> {
         if self.windows.len() <= 1 {
             return vec![]
         }

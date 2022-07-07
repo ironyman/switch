@@ -32,6 +32,7 @@ use switch::log::*;
 const WAIT_QUAKE_SECONDS: u32 = 60;
 const QUAKE_HOT_KEY_ID: i32 = 1;
 const QUAKE_WIN_HOT_KEY_ID: i32 = 2;
+
 const OPEN_QUAKE_EVENT_NAME: &str = "OpenQuake";
 const HIDE_QUAKE_EVENT_NAME: &str = "HideQuake";
 const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
@@ -153,6 +154,7 @@ unsafe fn get_child_pid(pid: u32) -> u32 {
 
     return child_pid;
 }
+
 struct EnumWindowData {
     hwnd: HWND,
     process_id: u32,
@@ -376,6 +378,24 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
                 return;
             });
+        } else if press_state == WM_KEYDOWN && vk == VK_RETURN {
+            // This is not what WindowProvider is meant to be used for
+            // but I need a list of windows excluding the quakerun host term window.
+            // Which is what WindowProvider does. Maybe fix this later.
+            let wp = switch::WindowProvider::new();
+            let windows = wp.get_filtered_window_list();
+            let terminals: Vec<&&switch::windowprovider::WindowInfo> = windows.iter().filter(|&&w| {
+                w.image_name == "WindowsTerminal"
+            }).collect();
+
+            let current = terminals.iter().position(|&&t| t.windowh == GetForegroundWindow());
+            let next = match current {
+                Some(index) => {
+                    (index + 1) % terminals.len()
+                },
+                _ => 0
+            };
+            set_foreground_window_terminal(terminals[next].windowh).ok();
         }
 
         if press_state == WM_KEYUP {
@@ -557,12 +577,12 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         //     std::ptr::null(),
         //     std::ptr::null());
         
-        let res = ReadFile(start_switch_read, 
+        let _res = ReadFile(start_switch_read, 
             buf.as_mut_ptr() as _, 
             buf.len() as u32,
             std::ptr::null_mut(),
             &mut overlapped);
-        switch::trace!("init", log::Level::Info, "ReadFile gle {} ret {}", GetLastError().0, res.0);
+        // switch::trace!("init", log::Level::Info, "ReadFile gle {} ret {}", GetLastError().0, res.0);
         assert!(GetLastError() == ERROR_IO_PENDING);
         SetLastError(NO_ERROR);
         assert!(waits.add(overlapped.hEvent));
@@ -576,6 +596,11 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         if !RegisterHotKey(HWND(0), QUAKE_HOT_KEY_ID, MOD_ALT | MOD_NOREPEAT, VK_OEM_3.0 as u32).as_bool() {
             switch::trace!("hotkey", log::Level::Info, "RegisterHotKey returned {}", GetLastError().0);
         }
+
+        // This hotkey is reserved.
+        // if !RegisterHotKey(HWND(0), TERMINAL_HOT_KEY_ID, MOD_WIN | MOD_NOREPEAT, VK_RETURN.0 as u32).as_bool() {
+        //     switch::trace!("hotkey", log::Level::Info, "RegisterHotKey returned {}", GetLastError().0);
+        // }
 
         HOOK_HANDLE = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), HINSTANCE(0), 0);
 
@@ -669,16 +694,19 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             WM_HOTKEY => {
                                 // println!("Hotkey pressed!");
                                 switch::trace!("hotkey", log::Level::Info, "Hotkey pressed!");
-                                let arg = "--mode window\0";
-                                let mut written = 0u32;
-                                WriteFile(
-                                    START_SWITCH_WRITE,
-                                    arg.as_bytes().as_ptr() as _,
-                                    arg.len() as u32,
-                                    &mut written,
-                                    std::ptr::null_mut());
-                                assert!(written as usize == arg.len());
-            
+
+                                if msg.wParam.0 as i32 == QUAKE_HOT_KEY_ID{
+                                    let arg = "--mode window\0";
+                                    let mut written = 0u32;
+                                    WriteFile(
+                                        START_SWITCH_WRITE,
+                                        arg.as_bytes().as_ptr() as _,
+                                        arg.len() as u32,
+                                        &mut written,
+                                        std::ptr::null_mut());
+                                    assert!(written as usize == arg.len());
+                                }
+
                                 // if current_running_process.is_invalid() {
                                 //     SetEvent(run_quake_event);
                                 // } else {
