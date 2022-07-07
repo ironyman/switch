@@ -426,7 +426,8 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                     }
                 };
 
-                if let Err(_) = adjacent_window {
+                if let Err(e) = adjacent_window {
+                    switch::trace!("directional_switching", log::Level::Debug, "get_candidate_windows returned error: {:?}", e);
                     return;
                 }
                 
@@ -480,7 +481,7 @@ fn initialize_index() {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "hotkey"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
@@ -655,7 +656,6 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         current_running_process = HANDLE(0);
                         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                     } else if h == overlapped.hEvent {
-                        switch::trace!("hotkey", log::Level::Info, "cap + p event read");
                         if current_running_process.is_invalid() {
                             let mut buf_read = 0u32;
                             GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
@@ -682,7 +682,9 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             buf.len() as u32,
                             std::ptr::null_mut(),
                             &mut overlapped);
-                        assert!(GetLastError() == ERROR_IO_PENDING);
+                        if GetLastError() != ERROR_IO_PENDING {
+			                switch::trace!("runtime", log::Level::Info, "ReadFile start_switch_read failed with {}", GetLastError().0);
+                        }
                         SetLastError(NO_ERROR);
                     } else {
                         assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);

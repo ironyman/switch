@@ -25,6 +25,10 @@ use windows::{
     Win32::UI::Input::KeyboardAndMouse::{
         SetFocus,
         SetActiveWindow,
+		// keybd_event,
+		// KEYEVENTF_KEYUP,
+		// KEYBD_EVENT_FLAGS,
+		// VK_ESCAPE,
     },
     Win32::System::Threading::Sleep,
     Win32::System::LibraryLoader::{
@@ -55,7 +59,10 @@ use windows::{
     Win32::System::WindowsProgramming::{
         INFINITE,
     },
+	// Win32::Security::Credentials::*,
 };
+
+use crate::log::*;
 
 // This module contains a bunch of different ways of setting foreground window.
 // set_foreground_window_ex is from AHK and doesn't work for mmc.exe windows and admin conhost.
@@ -528,13 +535,26 @@ pub fn set_foreground_window_terminal(windowh: HWND) -> anyhow::Result<()> {
         let foreground_thread_id = GetWindowThreadProcessId(foreground, std::ptr::null_mut() as *mut u32);
         let current_thread_id = GetCurrentThreadId();
 
-        AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(1)).ok()?;
+        if AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(1)).as_bool() {
+			BringWindowToTop(windowh);
+			ShowWindow(windowh, SW_SHOW);
+			SetActiveWindow(windowh);
 
-        BringWindowToTop(windowh);
-        ShowWindow(windowh, SW_SHOW);
-        SetActiveWindow(windowh);
-
-        AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(0)).ok()?;
+			AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(0)).ok()?;
+		} else {
+			crate::trace!("runtime", log::Level::Info, "AttachThreadInput failed with {}", windows::Win32::Foundation::GetLastError().0);
+			// if windows::Win32::Foundation::GetLastError().0 == STATUS_ACCESS_DENIED.0 as u32 {
+			if windows::Win32::Foundation::GetLastError() == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
+				// Some shell and system threads won't allow AttachThreadInput, best effort.
+				// keybd_event(VK_ESCAPE.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+				// keybd_event(VK_ESCAPE.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+				// AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(1));
+				BringWindowToTop(windowh);
+				ShowWindow(windowh, SW_SHOW);
+				SetActiveWindow(windowh);
+				// AttachThreadInput(foreground_thread_id, current_thread_id, BOOL(0));
+			}
+		}
 
         Ok(())
     }
