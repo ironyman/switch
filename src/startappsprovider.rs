@@ -7,6 +7,8 @@ use windows::Win32::Foundation::HWND;
 use windows::core::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::log::*;
+
 pub struct StartAppsProvider {
     apps: Vec<AppEntry>,
     filter: String,
@@ -187,6 +189,12 @@ impl ListContentProvider for StartAppsProvider {
     }
 
     fn activate(&self, filtered_index: usize) {
-        self.get_filtered_app_list()[filtered_index].start();
+        let apps = self.get_filtered_app_list();
+        if filtered_index >= apps.len() {
+            return;
+        }
+        crate::trace!("activate", log::Level::Info, "Activate app: {:?}", apps[filtered_index]);
+
+        apps[filtered_index].start();
     }
 }

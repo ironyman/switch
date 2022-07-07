@@ -25,6 +25,8 @@ use switch::{
     console,
 };
 
+use switch::log::*;
+
 const INPUT_PROMPT: &str = "> ";
 
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
@@ -193,6 +195,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .takes_value(true))
         .get_matches();
 
+    switch::log::initialize_log(log::Level::Debug, &["activate"], switch::log::get_app_data_path("switch.log")?)?;
+
     // setup terminal
     enable_raw_mode()?;
 
@@ -303,7 +307,8 @@ fn run_app<B: Backend>(
                             return Ok(())
                         },
                         KeyCode::Enter => {
-                            let selected = app.list_state.selected().unwrap_or(0);
+                            let selected = app.list_state.selected().unwrap_or(std::usize::MAX);
+                            switch::trace!("activate", log::Level::Info, "Enter pressed: {}", selected);
 
                             // unsafe { 
                                 // There are rules for who can set foreground window, and if you fail

@@ -39,6 +39,8 @@ use windows::{
 use crate::setforegroundwindow::set_foreground_window_terminal;
 use crate::listcontentprovider::ListContentProvider;
 
+use crate::log::*;
+
 //use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub struct WindowInfo {
@@ -220,6 +222,11 @@ impl ListContentProvider for WindowProvider {
     }
 
     fn activate(&self, filtered_index: usize) {
-        set_foreground_window_terminal(self.get_filtered_window_list()[filtered_index].windowh).unwrap();
+        let windows = self.get_filtered_window_list();
+        if filtered_index >= windows.len() {
+            return;
+        }
+        crate::trace!("activate", log::Level::Info, "Activate window: {}", windows[filtered_index]);
+        set_foreground_window_terminal(windows[filtered_index].windowh).unwrap();
     }
 }
