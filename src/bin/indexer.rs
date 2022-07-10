@@ -151,14 +151,14 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
     let mut apps: Vec<AppEntry> = vec![];
 
     let mut gather_exes = |de: &std::fs::DirEntry| {
-        let valid_extensions = ["exe", "lnk", "msc", "cpl"];
+        // let valid_extensions = ["exe", "lnk", "msc", "cpl"];
         let extension: String = de.path().extension().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().into();
-        if !valid_extensions.contains(&&extension[..]) {
-            return;
-        } 
+        // if !valid_extensions.contains(&&extension[..]) {
+        //     return;
+        // } 
 
         match &extension[..] {
-            "exe" | "msc" | "cpl" => {
+            "exe" | "msc" | "cpl" | "appref-ms" => {
                 apps.push(AppEntry {
                     name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
                     path: de.path().to_str().unwrap().into(),
