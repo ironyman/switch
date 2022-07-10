@@ -485,11 +485,17 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
     return Ok(());
 }
 
+fn get_installed_exe_path(file: &str) -> String {
+    let mut install_path  = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
+    install_path.push(file);
+    return install_path.into_os_string().into_string().unwrap();
+}
+
 fn initialize_index() {
-    let mut indexer_path = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
-    indexer_path.push("indexer.exe");
-    let output = std::process::Command::new(indexer_path.as_os_str().to_str().unwrap().to_owned()).output().unwrap();
-    
+    // let mut indexer_path = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
+    // indexer_path.push("indexer.exe");
+    // let output = std::process::Command::new(indexer_path.as_os_str().to_str().unwrap().to_owned()).output().unwrap();
+    let output = std::process::Command::new(get_installed_exe_path("indexer.exe")).output().unwrap();
     println!("status: {}", output.status);
     std::io::stdout().write_all(&output.stdout).unwrap();
     std::io::stderr().write_all(&output.stderr).unwrap();
@@ -683,9 +689,9 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         if current_running_process.is_invalid() {
                             let mut buf_read = 0u32;
                             GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
-    
+
                             let pid = create_process(format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap()));
-    
+
                             let pid = if pid.is_err() {
                                 set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                                 // ResetEvent(run_quake_event);
@@ -693,7 +699,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             } else {
                                 pid.unwrap()
                             };
-    
+
                             current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
                             waits.add(current_running_process);
                             // ResetEvent(run_quake_event);
@@ -810,15 +816,18 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if matches.value_of("command").is_none() {
-        println!("Need --command to be specified.");
-        return Err(anyhow::Error::from(Error::from(ERROR_INVALID_PARAMETER)));
-    }
+    // if matches.value_of("command").is_none() {
+    //     println!("Need --command to be specified.");
+    //     return Err(anyhow::Error::from(Error::from(ERROR_INVALID_PARAMETER)));
+    // }
 
-    if matches.occurrences_of("runner") == 1 {
+    if matches.occurrences_of("runner") == 1 && !matches.value_of("command").is_none() {
         println!("Quakerun starting as terminal runner.");
         return quake_terminal_runner(matches.value_of("command").unwrap());
     }
+
+    let switch_default_path = get_installed_exe_path("switch.exe");
+    let command = matches.value_of("command").unwrap_or(&switch_default_path);
 
     unsafe {
         SetLastError(NO_ERROR);
@@ -841,7 +850,7 @@ fn main() -> anyhow::Result<()> {
             println!("RegisterHotKey returned {}", GetLastError().0);
         }
 
-        let quake_window = create_initial_quake_window(matches.value_of("command").unwrap())?;
+        let quake_window = create_initial_quake_window(command)?;
         println!("Found quake window hwnd {:?}", quake_window);
         UnregisterHotKey(HWND(0), QUAKE_WIN_HOT_KEY_ID);
 
