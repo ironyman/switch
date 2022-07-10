@@ -280,64 +280,71 @@ fn run_app<B: Backend>(
 
         if crossterm::event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key) => {
-                    match key.code {
-                        KeyCode::Char(c) => {
-                            if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
-                                return Ok(())
-                            }
-                            app.input_buffer.push(c);
-                            app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
-                            app.list_state.select(Some(0));
-                        },
-                        KeyCode::Left => app.list_unselect(),
-                        KeyCode::Down => app.list_next(),
-                        KeyCode::Up => app.list_previous(),
-                        KeyCode::Backspace => {
-                            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                                let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
-                                app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
-                            } else {
-                                app.input_buffer.pop();
-                            }
-                            app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
-                            app.list_state.select(Some(0));
-                        },
-                        KeyCode::Esc => {
+                Event::Key(key) => match key.code {
+                    KeyCode::Char(c) => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
                             return Ok(())
-                        },
-                        KeyCode::Enter => {
-                            let selected = app.list_state.selected().unwrap_or(std::usize::MAX);
-                            switch::trace!("activate", log::Level::Info, "Enter pressed: {}", selected);
-
-                            // unsafe { 
-                                // There are rules for who can set foreground window, and if you fail
-                                // it just flashes that window in task bar and nothing else
-                                // SetForegroundWindow(app.list[selected].windowh);
-
-
-                                // This brings the other window to foreground, but doesn't focus it.
-                                // SetWindowPos(app.list[selected].windowh, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-                                // SetWindowPos(app.list[selected].windowh, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
-                            // }
-
-                            //set_foreground_window_in_foreground(app.list[selected].windowh);
-                            // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
-                            // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
-                            app.current_provider().activate(selected);
-                            return Ok(())
-                        },
-                        KeyCode::Tab => {
-                            app.next_provider();
-                        },
-                        KeyCode::PageDown => {
-                            app.list_page_next();
-                        },
-                        KeyCode::PageUp => {
-                            app.list_page_prev();
                         }
-                        _ => {}
-                    }
+                        app.input_buffer.push(c);
+                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                        app.list_state.select(Some(0));
+                    },
+                    KeyCode::Left => app.list_unselect(),
+                    KeyCode::Down => app.list_next(),
+                    KeyCode::Up => app.list_previous(),
+                    KeyCode::Backspace => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL) {
+                            let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
+                            app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
+                        } else {
+                            app.input_buffer.pop();
+                        }
+                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                        app.list_state.select(Some(0));
+                    },
+                    KeyCode::Esc => {
+                        return Ok(())
+                    },
+                    KeyCode::Enter => {
+                        let selected = app.list_state.selected().unwrap_or(std::usize::MAX);
+                        switch::trace!("activate", log::Level::Info, "Enter pressed: {}", selected);
+
+                        // unsafe { 
+                            // There are rules for who can set foreground window, and if you fail
+                            // it just flashes that window in task bar and nothing else
+                            // SetForegroundWindow(app.list[selected].windowh);
+
+
+                            // This brings the other window to foreground, but doesn't focus it.
+                            // SetWindowPos(app.list[selected].windowh, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                            // SetWindowPos(app.list[selected].windowh, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE);
+                        // }
+
+                        //set_foreground_window_in_foreground(app.list[selected].windowh);
+                        // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
+                        // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
+                        app.current_provider().activate(selected);
+                        return Ok(())
+                    },
+                    KeyCode::Tab => {
+                        app.next_provider();
+                    },
+                    KeyCode::PageDown => {
+                        app.list_page_next();
+                    },
+                    KeyCode::PageUp => {
+                        app.list_page_prev();
+                    },
+                    _ => {},
+                },
+                Event::Mouse(key) => match key.kind {
+                    crossterm::event::MouseEventKind::Down(button) => match button {
+                        crossterm::event::MouseButton::Right => {
+                            
+                        },
+                        _ => {},
+                    },
+                    _ => {},
                 },
                 Event::Resize(width, height) => {
                     app.screen_width = width;

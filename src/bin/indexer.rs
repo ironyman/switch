@@ -72,6 +72,11 @@ const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
         max_depth: 99,
     },
     IndexRoot {
+        path: "%USERPROFILE%\\.cargo\\bin\\\0",
+        // kind: AppKind::Exe,
+        max_depth: 99,
+    },
+    IndexRoot {
         path: "%USERPROFILE%\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\\0",
         // kind: AppKind::Exe,
         max_depth: 99,
@@ -80,6 +85,11 @@ const INDEX_DIRECTORIES: &'static [IndexRoot] = &[
         path: "%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps\\\0",
         // kind: AppKind::Exe,
         max_depth: 0,
+    },
+    IndexRoot {
+        path: "%ProgramData%\\chocolatey\\bin\\\0",
+        // kind: AppKind::Exe,
+        max_depth: 99,
     },
     IndexRoot {
         path: "%SystemRoot%\\\0",
@@ -239,7 +249,9 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
             expanded_path = String::from_utf8_lossy(&expanded[..len-1]).into();
         }
         switch::trace!("indexer", log::Level::Info, "Indexing {:?}", expanded_path);
-        visit_directories(expanded_path, &mut gather_exes, root.max_depth)?;
+        if let Err(err) = visit_directories(expanded_path, &mut gather_exes, root.max_depth) {
+            switch::trace!("indexer", log::Level::Error, "Error: {:?}", err);
+        }
     }
 
     return Ok(apps);
