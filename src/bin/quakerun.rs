@@ -396,6 +396,21 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 _ => 0
             };
             set_foreground_window_terminal(terminals[next].windowh).ok();
+        } else if press_state == WM_KEYDOWN && vk == VK_O {
+            // let cmd = "btm.exe";
+            // // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
+            // // let buf = std::alloc::alloc(layout);
+            // // unsafe { PostThreadMessageA(MAIN_THREAD_ID, WM_START_SWITCH, WPARAM(buf as usize), LPARAM(0)); }
+            // switch::trace!("hotkey", log::Level::Info, "cap + p pressed");
+            // let mut written = 0u32;
+            // WriteFile(
+            //     START_SWITCH_WRITE,
+            //     arg.as_bytes().as_ptr() as _,
+            //     arg.len() as u32,
+            //     &mut written,
+            //     std::ptr::null_mut());
+            // assert!(written as usize == arg.len());
+            // switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
         }
 
         if press_state == WM_KEYUP {
@@ -544,6 +559,8 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         let mut sa = windows::Win32::Security::SECURITY_ATTRIBUTES::default();
         sa.nLength = std::mem::size_of::<windows::Win32::Security::SECURITY_ATTRIBUTES>() as u32;
         // owner builtin admin, group system, admin access full, everyone, deny full
+        // Actually don't need this, mandatory integrity control will prevent
+        // less than high integrity processes from accessing pipe.
         let dacl = "O:BAG:SYD:(A;OICI;GA;;;BA)(D;;FA;;;WD)\0";
         ConvertStringSecurityDescriptorToSecurityDescriptorA(
             PCSTR(dacl.as_ptr()),
@@ -559,6 +576,12 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
             4096,
             0,
             &sa);
+
+        // If testing pipe security, wait for cargo test --package switch --test pipesecurity -- openpipe --nocapture
+        // because there can only be one writer.
+        #[cfg(test_pipe_security)]
+        Sleep(100000);
+
         START_SWITCH_WRITE = CreateFileA(
             PCSTR("\\\\.\\Pipe\\QuakeTerminalRunner\0".as_ptr()),
             FILE_GENERIC_WRITE,
@@ -570,6 +593,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         LocalFree(sa.lpSecurityDescriptor as isize);
 
+        // Can't use unamed pipe, doesn't support overlapped IO.
         // CreatePipe(&mut start_switch_read, &mut START_SWITCH_WRITE, std::ptr::null(), 0);
         // let mode = PIPE_NOWAIT;
         // SetNamedPipeHandleState(
