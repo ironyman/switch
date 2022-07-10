@@ -36,6 +36,7 @@ const QUAKE_WIN_HOT_KEY_ID: i32 = 2;
 const OPEN_QUAKE_EVENT_NAME: &str = "OpenQuake";
 const HIDE_QUAKE_EVENT_NAME: &str = "HideQuake";
 const EXIT_QUAKE_EVENT_NAME: &str = "ExitQuake";
+const BTM_EVENT_NAME: &str = "BTM";
 const RUN_QUAKE_EVENT_NAME: &str = "RunQuake";
 
 // const WM_START_SWITCH: u32 = WM_USER + 1;
@@ -68,6 +69,84 @@ unsafe fn create_process(cmdline: String) -> Result<u32> {
 
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+
+    return Ok(pi.dwProcessId);
+}
+
+unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
+    let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
+    let mut si: STARTUPINFOW = std::mem::zeroed();
+    let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+    si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+
+    let mut token = HANDLE(0);
+    if !OpenProcessToken(
+        GetCurrentProcess(),
+        TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY,
+        &mut token).as_bool()
+    {
+        return Err(Error::from_win32());
+    }
+
+    let mut new_token = HANDLE(0);
+    if !DuplicateTokenEx(token,
+        TOKEN_ACCESS_MASK(0),
+        std::ptr::null(),
+        SecurityImpersonation,
+        TokenPrimary,
+        &mut new_token).as_bool()
+    {
+        CloseHandle(token);
+        return Err(Error::from_win32());
+    }
+
+    let mut sid =  PSID::default();
+    let medium_integrity = "S-1-16-8192\0".encode_utf16().collect::<Vec<u16>>();
+    if !ConvertStringSidToSidW(PCWSTR(medium_integrity.as_ptr()), &mut sid).as_bool() {
+        CloseHandle(token);
+        CloseHandle(new_token);
+        return Err(Error::from_win32());
+    }
+
+    let mut til = TOKEN_MANDATORY_LABEL::default();
+    til.Label.Attributes = SE_GROUP_INTEGRITY as u32;
+    til.Label.Sid = sid;
+
+    if !SetTokenInformation(new_token,
+        TokenIntegrityLevel,
+        std::mem::transmute(&til),
+        std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32 + GetLengthSid(sid)).as_bool()
+    {
+        LocalFree(std::mem::transmute(sid));
+        CloseHandle(token);
+        CloseHandle(new_token);
+        return Err(Error::from_win32());
+    }
+
+    let created = CreateProcessAsUserW(
+        new_token,
+        PCWSTR(std::ptr::null()),
+        PWSTR(cmdline.as_mut_ptr() as *mut _),
+        std::ptr::null(),
+        std::ptr::null(),
+        BOOL(0),
+        0,
+        std::ptr::null(),
+        PCWSTR(std::ptr::null()),
+        &si,
+        &mut pi
+    );
+
+    LocalFree(std::mem::transmute(sid));
+
+    CloseHandle(token);
+    CloseHandle(new_token);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    if !created.as_bool() {
+        return Err(Error::from_win32());
+    }
 
     return Ok(pi.dwProcessId);
 }
@@ -397,23 +476,8 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
             };
             set_foreground_window_terminal(terminals[next].windowh).ok();
         } else if press_state == WM_KEYDOWN && vk == VK_O {
-            // let cmd = "btm.exe";
-            // // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
-            // // let buf = std::alloc::alloc(layout);
-            // // unsafe { PostThreadMessageA(MAIN_THREAD_ID, WM_START_SWITCH, WPARAM(buf as usize), LPARAM(0)); }
-            // switch::trace!("hotkey", log::Level::Info, "cap + p pressed");
-            // let mut written = 0u32;
-            // WriteFile(
-            //     START_SWITCH_WRITE,
-            //     arg.as_bytes().as_ptr() as _,
-            //     arg.len() as u32,
-            //     &mut written,
-            //     std::ptr::null_mut());
-            // assert!(written as usize == arg.len());
-            // switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
-        }
-
-        if press_state == WM_KEYUP {
+            set_event_by_name(BTM_EVENT_NAME);
+        } else if press_state == WM_KEYUP {
             std::thread::spawn(move || {
                 let adjacent_window = match vk {
                     VK_LEFT => {
@@ -445,7 +509,7 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                     switch::trace!("directional_switching", log::Level::Debug, "get_candidate_windows returned error: {:?}", e);
                     return;
                 }
-                
+
                 let adjacent_window = adjacent_window.unwrap();
                 let _ = set_foreground_window_terminal(adjacent_window);
                 let timer = CreateThreadpoolTimer(Some(create_highlight_window), core::mem::transmute(adjacent_window), std::ptr::null());
@@ -552,11 +616,19 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         );
         assert!(waits.add(hide_quake_event));
 
+        let btm_event = CreateEventW(
+            std::ptr::null(),
+            BOOL(0),
+            BOOL(0),
+            std::ffi::OsString::from(BTM_EVENT_NAME)
+        );
+        assert!(waits.add(btm_event));
+
         // Starting waiting for "start switch" messages.
         // let mut start_switch_read = HANDLE(0);
         let mut buf = [0u8; 256];
-        let mut overlapped = windows::Win32::System::IO::OVERLAPPED::default();
-        overlapped.hEvent = CreateEventW(
+        let mut start_switch_read_overlapped = windows::Win32::System::IO::OVERLAPPED::default();
+        start_switch_read_overlapped.hEvent = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
@@ -607,16 +679,16 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         //     &mode,
         //     std::ptr::null(),
         //     std::ptr::null());
-        
+
         let _res = ReadFile(start_switch_read, 
             buf.as_mut_ptr() as _, 
             buf.len() as u32,
             std::ptr::null_mut(),
-            &mut overlapped);
+            &mut start_switch_read_overlapped);
         // switch::trace!("init", log::Level::Info, "ReadFile gle {} ret {}", GetLastError().0, res.0);
         assert!(GetLastError() == ERROR_IO_PENDING);
         SetLastError(NO_ERROR);
-        assert!(waits.add(overlapped.hEvent));
+        assert!(waits.add(start_switch_read_overlapped.hEvent));
 
         let terminal_pid = windowprovider::getppid(GetCurrentProcessId());
         let quake_window = get_process_window(terminal_pid)?;
@@ -685,37 +757,68 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         waits.remove(current_running_process);
                         current_running_process = HANDLE(0);
                         set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                    } else if h == overlapped.hEvent {
+                    } else if h == start_switch_read_overlapped.hEvent {
                         if current_running_process.is_invalid() {
                             let mut buf_read = 0u32;
-                            GetOverlappedResult(start_switch_read, &overlapped, &mut buf_read, BOOL(0));
 
-                            let pid = create_process(format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap()));
+                            GetOverlappedResult(start_switch_read, &start_switch_read_overlapped, &mut buf_read, BOOL(0));
+                            let cmdline = format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap());
+                            let pid = create_process(cmdline.clone());
 
-                            let pid = if pid.is_err() {
-                                set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                            if pid.is_err() {
+                                //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                                 // ResetEvent(run_quake_event);
-                                continue
+                                //continue
+                                switch::trace!("runtime", log::Level::Error, "create_process {} failed: {:?}", &cmdline, pid.err());
                             } else {
-                                pid.unwrap()
+                                current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid.unwrap());
+                                waits.add(current_running_process);
                             };
-
-                            current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
-                            waits.add(current_running_process);
-                            // ResetEvent(run_quake_event);
                         }
-                        set_foreground_window_terminal(quake_window)?;
+
+                        if !current_running_process.is_invalid() {
+                            set_foreground_window_terminal(quake_window)?;
+                        }
 
                         // Read for the next command.
                         ReadFile(start_switch_read, 
                             buf.as_mut_ptr() as _, 
                             buf.len() as u32,
                             std::ptr::null_mut(),
-                            &mut overlapped);
+                            &mut start_switch_read_overlapped);
                         if GetLastError() != ERROR_IO_PENDING {
 			                switch::trace!("runtime", log::Level::Info, "ReadFile start_switch_read failed with {}", GetLastError().0);
                         }
                         SetLastError(NO_ERROR);
+                    } else if h == btm_event {
+                        // Same as above but we want to run unelevated because the path for btm is medium integrity.
+                        if current_running_process.is_invalid() {
+                            let cmdline: String;
+
+                            let btm_path = "%USERPROFILE%\\.cargo\\bin\\btm.exe -b\0";
+                            let mut expanded: [u8; 512] = [0; 512];
+                            // PSTR(expanded.as_mut_ptr())
+                            let len = windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(btm_path.as_ptr()), &mut expanded) as usize;
+                            // Exclude null terminator which is needed for ExpandEnvironmentStringsA but not for rust strings.
+                            cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
+
+                            let pid = create_medium_process(cmdline.clone());
+
+                            if pid.is_err() {
+                                //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                                // ResetEvent(run_quake_event);
+                                //continue
+                                switch::trace!("runtime", log::Level::Error, "create_medium_process {} failed: {:?}", &cmdline, pid.err());
+                                continue;
+                            } else {
+                                current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid.unwrap());
+                                waits.add(current_running_process);
+                            };
+                        }
+                        if !current_running_process.is_invalid() {
+                            set_foreground_window_terminal(quake_window)?;
+                        }
+
                     } else {
                         assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
                     }
@@ -763,7 +866,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         UnhookWindowsHookEx(HOOK_HANDLE);
         UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
-        CloseHandle(overlapped.hEvent);
+        CloseHandle(start_switch_read_overlapped.hEvent);
         CloseHandle(should_exit_event);
         CloseHandle(run_quake_event);
         CloseHandle(open_quake_event);
