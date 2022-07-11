@@ -45,118 +45,12 @@ static mut HOOK_HANDLE: HHOOK = HHOOK(0);
 static mut START_SWITCH_WRITE: HANDLE = HANDLE(0);
 // static mut MAIN_THREAD_ID: u32 = 0u32;
 
-unsafe fn create_process(cmdline: String) -> Result<u32> {
-    let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
-    let mut si: STARTUPINFOW = std::mem::zeroed();
-    let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-    si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-
-    let created = CreateProcessW(
-        PCWSTR(std::ptr::null()),
-        PWSTR(cmdline.as_mut_ptr() as *mut _),
-        std::ptr::null(),
-        std::ptr::null(),
-        BOOL(0),
-        PROCESS_CREATION_FLAGS(0),
-        std::ptr::null(),
-        PCWSTR(std::ptr::null()),
-        &si,
-        &mut pi
-    );
-    if !created.as_bool() {
-        return Err(Error::from_win32());
-    }
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    return Ok(pi.dwProcessId);
-}
-
-unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
-    let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
-    let mut si: STARTUPINFOW = std::mem::zeroed();
-    let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-    si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
-
-    let mut token = HANDLE(0);
-    if !OpenProcessToken(
-        GetCurrentProcess(),
-        TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY,
-        &mut token).as_bool()
-    {
-        return Err(Error::from_win32());
-    }
-
-    let mut new_token = HANDLE(0);
-    if !DuplicateTokenEx(token,
-        TOKEN_ACCESS_MASK(0),
-        std::ptr::null(),
-        SecurityImpersonation,
-        TokenPrimary,
-        &mut new_token).as_bool()
-    {
-        CloseHandle(token);
-        return Err(Error::from_win32());
-    }
-
-    let mut sid =  PSID::default();
-    let medium_integrity = "S-1-16-8192\0".encode_utf16().collect::<Vec<u16>>();
-    if !ConvertStringSidToSidW(PCWSTR(medium_integrity.as_ptr()), &mut sid).as_bool() {
-        CloseHandle(token);
-        CloseHandle(new_token);
-        return Err(Error::from_win32());
-    }
-
-    let mut til = TOKEN_MANDATORY_LABEL::default();
-    til.Label.Attributes = SE_GROUP_INTEGRITY as u32;
-    til.Label.Sid = sid;
-
-    if !SetTokenInformation(new_token,
-        TokenIntegrityLevel,
-        std::mem::transmute(&til),
-        std::mem::size_of::<TOKEN_MANDATORY_LABEL>() as u32 + GetLengthSid(sid)).as_bool()
-    {
-        LocalFree(std::mem::transmute(sid));
-        CloseHandle(token);
-        CloseHandle(new_token);
-        return Err(Error::from_win32());
-    }
-
-    let created = CreateProcessAsUserW(
-        new_token,
-        PCWSTR(std::ptr::null()),
-        PWSTR(cmdline.as_mut_ptr() as *mut _),
-        std::ptr::null(),
-        std::ptr::null(),
-        BOOL(0),
-        0,
-        std::ptr::null(),
-        PCWSTR(std::ptr::null()),
-        &si,
-        &mut pi
-    );
-
-    LocalFree(std::mem::transmute(sid));
-
-    CloseHandle(token);
-    CloseHandle(new_token);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    if !created.as_bool() {
-        return Err(Error::from_win32());
-    }
-
-    return Ok(pi.dwProcessId);
-}
-
 unsafe fn create_initial_quake_window(command: &str) -> Result<HWND> {
     let cmdline = "wt -w _quake ".to_string() 
         + &format!("{} --runner -c \"{}\"", std::env::current_exe().unwrap().to_str().unwrap(), command);
     println!("Running {}", cmdline);
 
-    let pid = create_process(cmdline)?;
+    let pid = switch::create_process::create_process(cmdline)?;
     return Ok(wait_for_quake_window_start(pid)?);
 }
 
@@ -467,14 +361,22 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 w.image_name == "WindowsTerminal"
             }).collect();
 
-            let current = terminals.iter().position(|&&t| t.windowh == GetForegroundWindow());
-            let next = match current {
-                Some(index) => {
-                    (index + 1) % terminals.len()
-                },
-                _ => 0
-            };
-            set_foreground_window_terminal(terminals[next].windowh).ok();
+            if terminals.len() == 0 {
+                let btm_path = "%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe";
+                let mut expanded: [u8; 512] = [0; 512];
+                let len = windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(btm_path.as_ptr()), &mut expanded) as usize;
+                let cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
+                let _  = switch::create_process::create_process(cmdline);
+            } else {
+                let current = terminals.iter().position(|&&t| t.windowh == GetForegroundWindow());
+                let next = match current {
+                    Some(index) => {
+                        (index + 1) % terminals.len()
+                    },
+                    _ => 0
+                };
+                set_foreground_window_terminal(terminals[next].windowh).ok();
+            }
         } else if press_state == WM_KEYDOWN && vk == VK_O {
             set_event_by_name(BTM_EVENT_NAME);
         } else if press_state == WM_KEYUP {
@@ -549,17 +451,11 @@ unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
     return Ok(());
 }
 
-fn get_installed_exe_path(file: &str) -> String {
-    let mut install_path  = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
-    install_path.push(file);
-    return install_path.into_os_string().into_string().unwrap();
-}
-
 fn initialize_index() {
     // let mut indexer_path = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
     // indexer_path.push("indexer.exe");
     // let output = std::process::Command::new(indexer_path.as_os_str().to_str().unwrap().to_owned()).output().unwrap();
-    let output = std::process::Command::new(get_installed_exe_path("indexer.exe")).output().unwrap();
+    let output = std::process::Command::new(switch::create_process::get_installed_exe_path("indexer.exe")).output().unwrap();
     println!("status: {}", output.status);
     std::io::stdout().write_all(&output.stdout).unwrap();
     std::io::stderr().write_all(&output.stderr).unwrap();
@@ -717,7 +613,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         // continue;
                         // switch::console::clear_console()?;
 
-                        let pid = create_process(command.into());
+                        let pid = switch::create_process::create_process(command.into());
 
                         let pid = if pid.is_err() {
                             set_event_by_name(HIDE_QUAKE_EVENT_NAME);
@@ -745,7 +641,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         // windows2::set_foreground_window_ex(quake_window);
 
                         let cmdline = "wt -w _quake fp --target 0".to_string();
-                        create_process(cmdline)?;
+                        switch::create_process::create_process(cmdline)?;
 
                         ResetEvent(open_quake_event);
                     } else if h == hide_quake_event {
@@ -763,7 +659,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
                             GetOverlappedResult(start_switch_read, &start_switch_read_overlapped, &mut buf_read, BOOL(0));
                             let cmdline = format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap());
-                            let pid = create_process(cmdline.clone());
+                            let pid = switch::create_process::create_process(cmdline.clone());
 
                             if pid.is_err() {
                                 //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
@@ -802,7 +698,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             // Exclude null terminator which is needed for ExpandEnvironmentStringsA but not for rust strings.
                             cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
 
-                            let pid = create_medium_process(cmdline.clone());
+                            let pid = switch::create_process::create_process(cmdline.clone());
 
                             if pid.is_err() {
                                 //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
@@ -929,7 +825,7 @@ fn main() -> anyhow::Result<()> {
         return quake_terminal_runner(matches.value_of("command").unwrap());
     }
 
-    let switch_default_path = get_installed_exe_path("switch.exe");
+    let switch_default_path = switch::create_process::get_installed_exe_path("switch.exe");
     let command = matches.value_of("command").unwrap_or(&switch_default_path);
 
     unsafe {

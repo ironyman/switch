@@ -11,47 +11,7 @@ use windows::Win32::UI::Shell::*;
 use switch::log::*;
 use switch::startappsprovider::{AppEntry, AppExecutableInfo};
 
-use windows::Win32::System::Ole::*;
-// use windows::Win32::Globalization::*;
-use std::mem::ManuallyDrop;
-
 // const DEFAULT_THREADS: u32 = 256;
-
-
-struct Variant(VARIANT);
-impl Variant {
-    pub fn new(num: VARENUM, contents: VARIANT_0_0_0) -> Variant {
-        Variant {
-            0: VARIANT {
-                Anonymous: VARIANT_0 {
-                    Anonymous: ManuallyDrop::new(VARIANT_0_0 {
-                        vt: num.0 as u16,
-                        wReserved1: 0,
-                        wReserved2: 0,
-                        wReserved3: 0,
-                        Anonymous: contents,
-                    }),
-                },
-            },
-        }
-    }   
-}
-impl From<String> for Variant {
-    fn from(value: String) -> Variant { Variant::new(VT_BSTR, VARIANT_0_0_0 { bstrVal: ManuallyDrop::new(BSTR::from(value)) }) }
-}
-
-impl Drop for Variant {
-    fn drop(&mut self) {
-        match VARENUM(unsafe { self.0.Anonymous.Anonymous.vt as i32 }) {
-            VT_BSTR => unsafe {
-                drop(&mut &self.0.Anonymous.Anonymous.Anonymous.bstrVal)
-            } 
-            _ => {}
-        }
-        unsafe { drop(&mut self.0.Anonymous.Anonymous) }
-    }
-}
-
 
 struct IndexRoot {
     path: &'static str,
@@ -170,12 +130,12 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
             "lnk" => {
                 unsafe {
                     let shell = CoCreateInstance::<_, IShellDispatch>(
-                        &windows::core::GUID::from_u128(0x13709620_C279_11CE_A49E_444553540000),
+                        &windows::core::GUID::from_u128(0x13709620_C279_11CE_A49E_444553540000), // CLSID_Shell
                         None,
                         CLSCTX_INPROC_SERVER).unwrap();
                     let dir = de.path().parent().unwrap().to_str().unwrap().to_owned() + "\0";
                     // let dir = dir.encode_utf16().collect::<Vec<u16>>();
-                    let dir = Variant::from(dir);
+                    let dir = switch::com::Variant::from(dir);
 
                     let folder = match shell.NameSpace(&dir.0) {
                         Ok(f) => {

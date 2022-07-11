@@ -1,13 +1,7 @@
 use std::path::Path;
 
 use windows::{
-    Win32::Foundation::{
-        HWND,
-        LPARAM,
-        BOOL,
-        CloseHandle,
-        INVALID_HANDLE_VALUE,
-    },
+    Win32::Foundation::*,
     Win32::UI::WindowsAndMessaging::{
         WINDOW_EX_STYLE,
         WS_EX_NOACTIVATE,
@@ -36,6 +30,7 @@ use windows::{
         PROCESSENTRY32
     },
 };
+use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::setforegroundwindow::set_foreground_window_terminal;
 use crate::listcontentprovider::ListContentProvider;
 
@@ -221,12 +216,30 @@ impl ListContentProvider for WindowProvider {
         self.filter = filter;
     }
 
-    fn activate(&self, filtered_index: usize) {
+    fn start(&mut self, filtered_index: usize) {
         let windows = self.get_filtered_window_list();
         if filtered_index >= windows.len() {
             return;
         }
-        crate::trace!("activate", log::Level::Info, "Activate window: {}", windows[filtered_index]);
+        crate::trace!("start", log::Level::Info, "Activate window: {}", windows[filtered_index]);
         set_foreground_window_terminal(windows[filtered_index].windowh).unwrap();
+    }
+
+    fn start_elevated(&mut self, filtered_index: usize) {
+        self.start(filtered_index);
+    }
+
+    fn remove(&mut self, filtered_index: usize) {
+        let windows = self.get_filtered_window_list();
+        if filtered_index >= windows.len() {
+            return;
+        }
+
+        unsafe {
+            // windows::Win32::UI::WindowsAndMessaging::CloseWindow(windows[filtered_index].windowh);
+            SendMessageW(windows[filtered_index].windowh, WM_CLOSE, WPARAM(0), LPARAM(0));
+
+        }
+        self.windows =  enum_window().unwrap();
     }
 }
