@@ -25,6 +25,7 @@ use switch::{
     console,
 };
 
+#[allow(unused_imports)]
 use switch::log::*;
 
 const INPUT_PROMPT: &str = "> ";
@@ -195,7 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .takes_value(true))
         .get_matches();
 
-    switch::log::initialize_log(log::Level::Debug, &["activate"], switch::log::get_app_data_path("switch.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "start"], switch::log::get_app_data_path("switch.log")?)?;
 
     // setup terminal
     enable_raw_mode()?;
@@ -307,8 +308,6 @@ fn run_app<B: Backend>(
                     },
                     KeyCode::Enter => {
                         let selected = app.list_state.selected().unwrap_or(std::usize::MAX);
-                        switch::trace!("activate", log::Level::Info, "Enter pressed: {}", selected);
-
                         // unsafe { 
                             // There are rules for who can set foreground window, and if you fail
                             // it just flashes that window in task bar and nothing else
@@ -323,9 +322,18 @@ fn run_app<B: Backend>(
                         //set_foreground_window_in_foreground(app.list[selected].windowh);
                         // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
                         // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
-                        app.current_provider().activate(selected);
+                        if key.modifiers.contains(KeyModifiers::CONTROL) {
+                            app.current_provider_mut().start_elevated(selected);
+                        } else {
+                            app.current_provider_mut().start(selected);
+                        }
+
                         return Ok(())
                     },
+                    KeyCode::Delete => {
+                        let selected = app.list_state.selected().unwrap_or(std::usize::MAX);
+                        app.current_provider_mut().remove(selected);
+                    }
                     KeyCode::Tab => {
                         app.next_provider();
                     },
@@ -354,9 +362,6 @@ fn run_app<B: Backend>(
                         console::clear_console()?;
                     }
                 },
-                _ => {
-
-                }
             }
         }
         if last_tick.elapsed() >= tick_rate {

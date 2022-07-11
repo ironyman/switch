@@ -12,3 +12,5 @@ pub mod waitlist;
 pub mod console;
 pub mod windowgeometry;
 pub mod log;
+pub mod com;
+pub mod create_process;
