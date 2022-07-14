@@ -242,7 +242,7 @@ impl AppEntry {
             let cmdline = crate::create_process::get_installed_exe_path("noconsole.exe") + " --shellexecute " + &shell_cmd;
             let result = crate::create_process::create_medium_process(cmdline);
             if let Err(e) = result {
-                crate::trace!("start", log::Level::Error, "Activate app: start_medium {:?}", e);
+                crate::trace!("start", log::Level::Error, "Start app: start_medium {:?}", e);
             }
             return Ok(());
         }
@@ -340,7 +340,7 @@ impl StartAppsProvider {
         }).collect();
     }
 
-    // If activated with a filter query that doesn't match a startapp
+    // If started with a filter query that doesn't match a startapp
     // then start as a command.
     fn start_command(&mut self, elevated: bool) {
 
@@ -374,11 +374,11 @@ impl ListContentProvider for StartAppsProvider {
             self.start_command(false);
             return;
         }
-        crate::trace!("start", log::Level::Info, "Activate app: {:?}", apps[filtered_index]);
+        crate::trace!("start", log::Level::Info, "Start app medium: {:?}", apps[filtered_index]);
 
         if let Err(e) = apps[filtered_index].start_medium() {
             // if let Err(e) = apps[filtered_index].start_medium(Some(&self.disp_shell)) {
-            crate::trace!("start", log::Level::Info, "Activate app error: {:?}", e);
+            crate::trace!("start", log::Level::Info, "Start app error: {:?}", e);
         }
     }
 
@@ -389,7 +389,7 @@ impl ListContentProvider for StartAppsProvider {
             self.start_command(true);
             return;
         }
-        crate::trace!("start", log::Level::Info, "Activate app elevated: {:?}", apps[filtered_index]);
+        crate::trace!("start", log::Level::Info, "Start app elevated: {:?}", apps[filtered_index]);
 
         apps[filtered_index].start();
     }

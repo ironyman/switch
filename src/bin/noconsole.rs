@@ -20,6 +20,10 @@ fn main() -> Result<()> {
         std::env::args().skip(1).collect::<Vec<String>>().join(" ")
     };
 
+    if cmdline.len() == 0 {
+        return Ok(());
+    }
+
     println!("cmdline: {}", cmdline);
 
     unsafe {
