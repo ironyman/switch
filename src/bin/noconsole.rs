@@ -5,8 +5,16 @@ use windows::{
     Win32::System::Threading::*,
 };
 
+use switch::log::*;
+
 // Start a console subsystem program with no console.
 fn main() -> Result<()> {
+    // why does uncommenting this make it work?? cap p, cmd.exe
+    switch::log::initialize_log(log::Level::Debug, &["init", "start"], switch::log::get_app_data_path("switch.log").unwrap()).unwrap();
+
+    unsafe {
+        windows::Win32::System::Console::AttachConsole(windows::Win32::System::Console::ATTACH_PARENT_PROCESS);
+    }
 
     if std::env::args().len() < 2 {
         return Ok(());
@@ -24,7 +32,9 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("cmdline: {}", cmdline);
+    println!("\ncmdline: {}", cmdline);
+    switch::trace!("start", log::Level::Info, "noconsole: {}", &cmdline);
+    // unsafe { windows::Win32::System::Diagnostics::Debug::DebugBreak(); }
 
     unsafe {
         if method == "--createprocess" {
@@ -56,14 +66,30 @@ fn main() -> Result<()> {
 
             return Ok(());
         } else {
-            windows::Win32::UI::Shell::ShellExecuteA(
+            let cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
+            windows::Win32::UI::Shell::ShellExecuteW(
                 HWND(0),
-                PCSTR(std::ptr::null()),
-                PCSTR(cmdline.as_ptr()),
-                PCSTR(std::ptr::null()),
-                PCSTR(std::ptr::null()),
+                PCWSTR(std::ptr::null()),
+                PCWSTR(cmdline.as_ptr()),
+                PCWSTR(std::ptr::null()),
+                PCWSTR(std::ptr::null()),
                 windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL.0 as i32
-            );
+            );       
+            // let result = windows::Win32::UI::Shell::ShellExecuteA(
+            //     HWND(0),
+            //     PCSTR(std::ptr::null()),
+            //     PCSTR(cmdline.as_ptr()),
+            //     PCSTR(std::ptr::null()),
+            //     PCSTR(std::ptr::null()),
+            //     windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL.0 as i32
+            // );
+            // let msg = format!("return {}\n error: {:?}\n cmdline: {}\n exists: {}\0", 
+            //     result.0,
+            //     Error::from_win32(),
+            //     cmdline,
+            //     std::path::PathBuf::from(&cmdline).exists());
+            // windows::Win32::UI::WindowsAndMessaging::MessageBoxA(HWND(0), PCSTR(msg.as_ptr()), PCSTR("lol\0".as_ptr()), windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE(0));
+            
             return Ok(());
         }
     }

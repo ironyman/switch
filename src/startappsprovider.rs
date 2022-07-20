@@ -223,7 +223,6 @@ impl AppEntry {
                 }
             }
 
-
             return Ok(());
         }
     }
@@ -240,9 +239,10 @@ impl AppEntry {
 
         unsafe {
             let cmdline = crate::create_process::get_installed_exe_path("noconsole.exe") + " --shellexecute " + &shell_cmd;
+            crate::trace!("start", log::Level::Info, "Start app: create_medium_process {:?}", &cmdline);
             let result = crate::create_process::create_medium_process(cmdline);
             if let Err(e) = result {
-                crate::trace!("start", log::Level::Error, "Start app: start_medium {:?}", e);
+                crate::trace!("start", log::Level::Error, "Start app: create_medium_process error {:?}", e);
             }
             return Ok(());
         }
