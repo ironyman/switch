@@ -7,6 +7,7 @@ use windows::{
     Win32::Security::*,
     Win32::Security::AppLocker::*,
     Win32::System::Memory::*,
+    Win32::UI::WindowsAndMessaging::*,
 };
 
 use crate::log::*;
@@ -101,6 +102,12 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
         crate::trace!("start", log::Level::Info, "Start app: set_privilege {:?}", Error::from_win32());
         return Err(Error::from_win32());
     }
+
+    // not allowed
+    // if !set_privilege(self_token, "SeAssignPrimaryTokenPrivilege".into(), true) {
+    //     crate::trace!("start", log::Level::Info, "Start app: set_privilege {:?}", Error::from_win32());
+    //     return Err(Error::from_win32());
+    // }
     CloseHandle(self_token);
 
     let shell = windows::Win32::UI::WindowsAndMessaging::GetShellWindow();
@@ -134,12 +141,12 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
         return Err(Error::from_win32());
     }
 
-    if !ImpersonateLoggedOnUser(new_token).as_bool() {
-        crate::trace!("start", log::Level::Info, "Start app: ImpersonateLoggedOnUser {:?} {:?}", Error::from_win32(), new_token);
-        CloseHandle(token);
-        CloseHandle(new_token);
-        return Err(Error::from_win32());
-    }
+    // if !ImpersonateLoggedOnUser(new_token).as_bool() {
+    //     crate::trace!("start", log::Level::Info, "Start app: ImpersonateLoggedOnUser {:?} {:?}", Error::from_win32(), new_token);
+    //     CloseHandle(token);
+    //     CloseHandle(new_token);
+    //     return Err(Error::from_win32());
+    // }
 
     
     let mut proc_attr_size = 0usize;
@@ -200,7 +207,7 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
         std::mem::transmute(&si),
         &mut pi
     );
-    RevertToSelf();
+    // RevertToSelf();
 
     // CreateProcessWithTokenW works but new process doesn't have foreground.
     // let created = CreateProcessWithTokenW(
@@ -208,12 +215,17 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
     //     CREATE_PROCESS_LOGON_FLAGS(0),
     //     PCWSTR(std::ptr::null()),
     //     PWSTR(cmdline.as_mut_ptr() as *mut _),
-    //     0,
+    //     CREATE_SUSPENDED.0,
     //     std::ptr::null(),
     //     PCWSTR(std::ptr::null()),
-    //     &si,
+    //     std::mem::transmute(&si),
     //     &mut pi
     // );
+
+    // Doesn't work.
+    // AllowSetForegroundWindow(pi.dwProcessId);
+    AllowSetForegroundWindow(ASFW_ANY);
+    ResumeThread(pi.hThread);
 
     std::alloc::dealloc(proc_attr_buf.0 as _, proc_attr_buf_layout);
 
