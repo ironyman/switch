@@ -171,10 +171,12 @@ impl AppEntry {
                     &mut disp);
 
                 let lhwnd = HWND(lhwnd.try_into().unwrap());
-                let mut window_pid = 0u32;
-                GetWindowThreadProcessId(lhwnd, &mut window_pid);
-                AllowSetForegroundWindow(window_pid);
-
+                // let mut window_pid = 0u32;
+                let _ = crate::setforegroundwindow::set_foreground_window_terminal(lhwnd);
+                // GetWindowThreadProcessId(lhwnd, &mut window_pid);
+                // AllowSetForegroundWindow(window_pid);
+                // AllowSetForegroundWindow(ASFW_ANY);
+                
                 // let disp2 = std::mem::transmute::<_, &mut IServiceProvider>(disp.as_mut().unwrap());
                 // let mut browser: *mut IShellBrowser = std::ptr::null_mut();
                 // let _ = disp2.QueryService(&SID_STopLevelBrowser, &IShellBrowser::IID, std::mem::transmute(&mut browser));
@@ -228,24 +230,25 @@ impl AppEntry {
     }
 
     fn start_medium(&self) -> anyhow::Result<()> {
-        let shell_cmd = match &self.exe_info {
-            AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
-                self.path.to_owned()
-            },
-            AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
-                format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id)
-            }
-        };
+        return self.start_medium_explorer();
+        // let shell_cmd = match &self.exe_info {
+        //     AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
+        //         self.path.to_owned()
+        //     },
+        //     AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
+        //         format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id)
+        //     }
+        // };
 
-        unsafe {
-            let cmdline = crate::create_process::get_installed_exe_path("noconsole.exe") + " --shellexecute " + &shell_cmd;
-            crate::trace!("start", log::Level::Info, "Start app: create_medium_process {:?}", &cmdline);
-            let result = crate::create_process::create_medium_process(cmdline);
-            if let Err(e) = result {
-                crate::trace!("start", log::Level::Error, "Start app: create_medium_process error {:?}", e);
-            }
-            return Ok(());
-        }
+        // unsafe {
+        //     let cmdline = crate::create_process::get_installed_exe_path("noconsole.exe") + " --shellexecute " + &shell_cmd;
+        //     crate::trace!("start", log::Level::Info, "Start app: create_medium_process {:?}", &cmdline);
+        //     let result = crate::create_process::create_medium_process(cmdline);
+        //     if let Err(e) = result {
+        //         crate::trace!("start", log::Level::Error, "Start app: create_medium_process error {:?}", e);
+        //     }
+        //     return Ok(());
+        // }
     }
 }
 
