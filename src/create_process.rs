@@ -84,9 +84,9 @@ unsafe fn set_privilege(token: HANDLE, privilege: String, enable: bool) -> bool 
 // Using the shell token.
 pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
     let mut cmdline = (cmdline + "\0").encode_utf16().collect::<Vec<u16>>();
-    let mut si: STARTUPINFOW = std::mem::zeroed();
+    let mut si: STARTUPINFOEXW = std::mem::zeroed();
     let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-    si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    si.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
 
     let mut self_token = HANDLE(0);
     if !OpenProcessToken(
@@ -141,6 +141,38 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
         return Err(Error::from_win32());
     }
 
+    
+    let mut proc_attr_size = 0usize;
+    InitializeProcThreadAttributeList(
+        LPPROC_THREAD_ATTRIBUTE_LIST(std::ptr::null_mut()),
+        1,
+        0,
+        &mut proc_attr_size
+    );
+
+    let proc_attr_buf_layout = std::alloc::Layout::from_size_align(proc_attr_size, 1).unwrap();
+    let proc_attr_buf = LPPROC_THREAD_ATTRIBUTE_LIST(std::alloc::alloc(proc_attr_buf_layout) as _);
+
+    InitializeProcThreadAttributeList(
+        proc_attr_buf,
+        1,
+        0,
+        &mut proc_attr_size
+    );
+
+    let none: *const core::ffi::c_void = std::ptr::null();
+    UpdateProcThreadAttribute(
+        proc_attr_buf,
+        0,
+        PROC_THREAD_ATTRIBUTE_PARENT_PROCESS.try_into().unwrap(),
+        std::mem::transmute::<_, *const core::ffi::c_void>(&none),
+        std::mem::size_of::<core::ffi::c_void>(),
+        std::ptr::null_mut(),
+        std::ptr::null()
+    );
+    
+    si.lpAttributeList = proc_attr_buf;
+
     SetLastError(NO_ERROR);
     // let created = CreateProcessW(
     //     PCWSTR(std::ptr::null()),
@@ -162,10 +194,10 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
         std::ptr::null(),
         std::ptr::null(),
         BOOL(0),
-        0,
+        EXTENDED_STARTUPINFO_PRESENT.0,
         std::ptr::null(),
         PCWSTR(std::ptr::null()),
-        &si,
+        std::mem::transmute(&si),
         &mut pi
     );
     RevertToSelf();
@@ -182,6 +214,8 @@ pub unsafe fn create_medium_process(cmdline: String) -> Result<u32> {
     //     &si,
     //     &mut pi
     // );
+
+    std::alloc::dealloc(proc_attr_buf.0 as _, proc_attr_buf_layout);
 
     CloseHandle(new_token);
     CloseHandle(token);
