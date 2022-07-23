@@ -455,14 +455,14 @@ fn initialize_index() {
     // let mut indexer_path = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
     // indexer_path.push("indexer.exe");
     // let output = std::process::Command::new(indexer_path.as_os_str().to_str().unwrap().to_owned()).output().unwrap();
-    let output = std::process::Command::new(switch::create_process::get_installed_exe_path("indexer.exe")).output().unwrap();
+    let output = std::process::Command::new(switch::path::get_installed_exe_path("indexer.exe")).output().unwrap();
     println!("status: {}", output.status);
     std::io::stdout().write_all(&output.stdout).unwrap();
     std::io::stderr().write_all(&output.stderr).unwrap();
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey"], switch::log::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
@@ -825,7 +825,7 @@ fn main() -> anyhow::Result<()> {
         return quake_terminal_runner(matches.value_of("command").unwrap());
     }
 
-    let switch_default_path = switch::create_process::get_installed_exe_path("switch.exe");
+    let switch_default_path = switch::path::get_installed_exe_path("switch.exe");
     let command = matches.value_of("command").unwrap_or(&switch_default_path);
 
     unsafe {

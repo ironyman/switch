@@ -937,10 +937,3 @@ pub unsafe fn create_medium_process_simple(cmdline: String) -> Result<u32> {
 
     return Ok(pi.dwProcessId);
 }
-
-
-pub fn get_installed_exe_path(file: &str) -> String {
-    let mut install_path  = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());
-    install_path.push(file);
-    return install_path.into_os_string().into_string().unwrap();
-}
