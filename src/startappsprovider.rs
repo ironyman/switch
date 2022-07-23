@@ -46,6 +46,7 @@ pub enum AppExecutableInfo {
 pub struct AppEntry {
     pub name: String,
     pub path: String,
+    pub params: String,
     pub exe_info: AppExecutableInfo,
 }
 
@@ -56,11 +57,12 @@ impl AppEntry {
             AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
                 unsafe {
                     let path = (self.path.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
+                    let params = (self.params.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
                     windows::Win32::UI::Shell::ShellExecuteW(
                         HWND(0),
                         PCWSTR(std::ptr::null()),
                         PCWSTR(path.as_ptr()),
-                        PCWSTR(std::ptr::null()),
+                        PCWSTR(params.as_ptr()),
                         PCWSTR(std::ptr::null()),
                         SW_SHOWNORMAL.0 as i32
                     );
@@ -202,13 +204,18 @@ impl AppEntry {
                 AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
                     let empty = crate::com::Variant::from("".to_owned());
                     let zero = crate::com::Variant::from(SW_SHOWNORMAL.0 as i32);
-                    let _ = disp_shell.ShellExecute(
+                    let params = crate::com::Variant::from(self.params.clone());
+
+                    if let Err(e) = disp_shell.ShellExecute(
                         BSTR::from(self.path.clone()),
-                        &empty.0,
+                        &params.0,
                         &empty.0,
                         &empty.0,
                         &zero.0,
-                    );
+                    ) {
+                        crate::trace!("start", log::Level::Error, "Start app medium: ShellExecute {:?}", e);
+                    }
+
                 },
                 AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
                     let path = format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id);
@@ -254,7 +261,12 @@ impl AppEntry {
 
 impl Default for AppEntry {
     fn default() -> Self {
-        return AppEntry { name: "".into(), path: "".into(), exe_info: AppExecutableInfo::Exe { ext: "".into() } };
+        return AppEntry { 
+            name: "".into(),
+            path: "".into(),
+            params: "".into(),
+            exe_info: AppExecutableInfo::Exe { ext: "".into() }
+        };
     }
 }
 
@@ -346,7 +358,27 @@ impl StartAppsProvider {
     // If started with a filter query that doesn't match a startapp
     // then start as a command.
     fn start_command(&mut self, elevated: bool) {
+        let args: Vec<&str> = self.filter.split(" ").collect();
+        if args.len() < 1 {
+            return;
+        }
 
+        crate::trace!("start", log::Level::Error, "Starting command: {:?}", self.filter);
+
+        let cmd = AppEntry {
+            name: self.filter.clone(),
+            path: args[0].into(),
+            params: if args.len() > 1 { args[1..].join(" ") } else { "".to_string() },
+            exe_info: AppExecutableInfo::Exe {
+                ext: "exe".into(),
+            }
+        };
+
+        if elevated {
+            cmd.start();
+        } else {
+            let _ = cmd.start_medium();
+        }
     }
 }
 
@@ -385,7 +417,6 @@ impl ListContentProvider for StartAppsProvider {
         }
     }
 
-    
     fn start_elevated(&mut self, filtered_index: usize) {
         let apps = self.get_filtered_app_list();
         if filtered_index >= apps.len() {

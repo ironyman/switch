@@ -124,7 +124,8 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
                     path: de.path().to_str().unwrap().into(),
                     exe_info: AppExecutableInfo::Exe {
                         ext: extension,
-                    }
+                    },
+                    ..Default::default()
                 });
             },
             "lnk" => {
@@ -189,7 +190,8 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
                         exe_info: AppExecutableInfo::Link {
                             ext: extension,
                             target_path:  link.Path().unwrap().to_string()
-                        }
+                        },
+                        ..Default::default()
                     });
                 }
             },
@@ -281,7 +283,8 @@ unsafe fn index_appx() -> anyhow::Result<Vec<AppEntry>> {
                     identity_id: identity_id.to_string_lossy(),
                     publisher_id: publisher_id.to_string_lossy(),
                     application_id: app_id,
-                }
+                },
+                ..Default::default()
             });
         }
     }
