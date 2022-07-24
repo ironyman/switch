@@ -412,7 +412,7 @@ impl StartAppsProvider {
             path: args[0].into(),
             params: if args.len() > 1 { args[1..].join(" ") } else { "".to_string() },
             exe_info: AppExecutableInfo::Exe {
-                ext: "exe".into(),
+                ext: "".into(),
             },
             ..Default::default()
         };
@@ -433,7 +433,12 @@ impl ListContentProvider for StartAppsProvider {
         self.get_filtered_app_list().iter().map(|&app| {
             match &app.exe_info {
                 AppExecutableInfo::Exe { ext } => {
-                    return app.name.clone() + "." + ext;
+                    let mut name = app.name.clone();
+                    if ext.len() > 0 {
+                        name += ".";
+                        name += &ext;
+                    }
+                    return name;
                 },
                 AppExecutableInfo::Link { ext, target_path } => {
                     return app.name.clone() + "." + ext + " (" + target_path + ")";
