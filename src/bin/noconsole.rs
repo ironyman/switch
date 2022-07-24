@@ -10,7 +10,7 @@ use switch::log::*;
 // Start a console subsystem program with no console.
 fn main() -> Result<()> {
     // why does uncommenting this make it work?? cap p, cmd.exe
-    switch::log::initialize_log(log::Level::Debug, &["init", "start"], switch::log::get_app_data_path("switch.log").unwrap()).unwrap();
+    switch::log::initialize_log(log::Level::Debug, &["init", "start"], switch::path::get_app_data_path("switch.log").unwrap()).unwrap();
 
     unsafe {
         windows::Win32::System::Console::AttachConsole(windows::Win32::System::Console::ATTACH_PARENT_PROCESS);

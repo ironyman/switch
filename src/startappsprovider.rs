@@ -47,7 +47,40 @@ pub struct AppEntry {
     pub name: String,
     pub path: String,
     pub params: String,
+    pub use_count: u32,
+    #[serde(with = "system_time_format")]
+    pub last_use_time: chrono::DateTime<chrono::Utc>,
     pub exe_info: AppExecutableInfo,
+}
+
+mod system_time_format {
+    pub fn serialize<S>(
+        dt: &chrono::DateTime<chrono::Utc>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let s = dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        serializer.serialize_str(&s)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<chrono::DateTime<chrono::Utc>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = serde::Deserialize::deserialize(deserializer)?;
+        return match chrono::DateTime::parse_from_rfc3339(s) {
+            Ok(dt) => {
+                Ok(chrono::DateTime::<chrono::Utc>::from(dt))
+            },
+            Err(e) => {
+                Err(serde::de::Error::custom(e))
+            }
+        }
+    }
 }
 
 impl AppEntry {
@@ -265,6 +298,8 @@ impl Default for AppEntry {
             name: "".into(),
             path: "".into(),
             params: "".into(),
+            use_count: 0,
+            last_use_time: chrono::Utc::now(),
             exe_info: AppExecutableInfo::Exe { ext: "".into() }
         };
     }
@@ -323,16 +358,23 @@ impl StartAppsProvider {
     // }
 
     fn enumerate_start_apps() -> anyhow::Result<Vec<AppEntry>> {
-        let path = crate::log::get_app_data_path("apps.json")?;
+        let path = crate::path::get_app_data_path("apps.json")?;
 
         // Maybe run indexer if the file is not found. How to safely find indexer.exe?
         // if !std::path::Path::new(&path).exists() {
         // }
+        let mut apps: Vec<AppEntry> = vec![];
 
+        if let Ok(db) = rocksdb::DB::open_default(crate::path::get_app_data_path("history.db").unwrap()) {
+            for (_key, value) in db.iterator(rocksdb::IteratorMode::Start) {
+                apps.push(bincode::deserialize(&value).unwrap())
+            }
+        }
+        
         let mut file = std::fs::File::open(path)?;
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
-        let apps: Vec<AppEntry> = serde_json::from_str(&buf)?;
+        apps.append(&mut serde_json::from_str(&buf)?);
         return Ok(apps);
     }
 
@@ -371,9 +413,13 @@ impl StartAppsProvider {
             params: if args.len() > 1 { args[1..].join(" ") } else { "".to_string() },
             exe_info: AppExecutableInfo::Exe {
                 ext: "exe".into(),
-            }
+            },
+            ..Default::default()
         };
 
+        let db = rocksdb::DB::open_default(crate::path::get_app_data_path("history.db").unwrap()).unwrap();
+        let _ = db.put(cmd.name.clone(), bincode::serialize(&cmd).unwrap());
+    
         if elevated {
             cmd.start();
         } else {

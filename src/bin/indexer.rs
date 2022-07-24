@@ -100,9 +100,9 @@ where IntoPath: Into<std::path::PathBuf> {
 }
 
 fn save_apps(apps: &Vec<AppEntry>) -> anyhow::Result<()> {
-    let path = switch::log::get_app_data_path("apps.json")?;
+    let path = switch::path::get_app_data_path("apps.json")?;
     let mut file = std::fs::File::create(path)?;
-    file.write_all(serde_json::to_string(&apps)?.as_bytes())?;
+    file.write_all(serde_json::to_string_pretty(&apps)?.as_bytes())?;
     file.sync_all()?;
     return Ok(());
 }
