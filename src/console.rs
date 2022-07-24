@@ -22,6 +22,7 @@ pub unsafe fn clear_console() -> Result<()> {
     enable_vt_mode();
     print!("\x1b[2J"); // Clear screen
     print!("\x1b[3J"); // Clear scrollback
+    print!("\x1b[0;0H"); // Reset cursor position
     // Flush stdout and clear now so that if we panic for some reason the panic is printed after screen is cleared.
     let _ = std::io::stdout().flush();
     // FlushConsoleInputBuffer(GetStdHandle(STD_OUTPUT_HANDLE));

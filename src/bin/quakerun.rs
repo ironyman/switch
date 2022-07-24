@@ -459,6 +459,7 @@ fn initialize_index() {
     println!("status: {}", output.status);
     std::io::stdout().write_all(&output.stdout).unwrap();
     std::io::stderr().write_all(&output.stderr).unwrap();
+    unsafe { let _ = switch::console::clear_console(); }
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
