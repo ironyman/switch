@@ -62,6 +62,7 @@ features = [
     "Management_Deployment_Preview",
     "Management_Deployment",
     "Win32_Security_AppLocker",
+    "Win32_NetworkManagement_NetManagement",
 ]
 
 [features]

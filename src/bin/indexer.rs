@@ -1,6 +1,11 @@
 use std::io::Write;
 
 use windows::Win32::System::Environment::*;
+use windows::Win32::System::WindowsProgramming::*;
+use windows::Win32::NetworkManagement::NetManagement::*;
+use windows::Win32::Security::*;
+use windows::Win32::Security::Authorization::*;
+use windows::Win32::System::Memory::*;
 use windows::core::*;
 use windows::Win32::System::WinRT::*;
 use windows::Win32::System::Com::*;
@@ -102,7 +107,7 @@ where IntoPath: Into<std::path::PathBuf> {
 fn save_apps(apps: &Vec<AppEntry>) -> anyhow::Result<()> {
     let path = switch::path::get_app_data_path("apps.json")?;
     let mut file = std::fs::File::create(path)?;
-    file.write_all(serde_json::to_string_pretty(&apps)?.as_bytes())?;
+    file.write_all(serde_json::to_string(&apps)?.as_bytes())?;
     file.sync_all()?;
     return Ok(());
 }
@@ -232,7 +237,49 @@ unsafe fn index_appx() -> anyhow::Result<Vec<AppEntry>> {
     // let pi: windows::core::IInspectable = af.ActivateInstance()?;
     // let pm: windows::Management::Deployment::IPackageManager = pi.into();
     let pm: windows::Management::Deployment::PackageManager = af.ActivateInstance()?;
-    let packages = pm.FindPackages()?;
+
+    // This requires high integrity.
+    // let packages = pm.FindPackages()?;
+
+    let mut username: [u8; UNLEN as usize + 1] = [0; UNLEN as usize + 1];
+    let mut username_length = UNLEN + 1 as u32;
+    GetUserNameA(PSTR(username.as_mut_ptr()), &mut username_length);
+
+    let mut sid_length = 0u32;
+    let mut domain_length = 0u32;
+    LookupAccountNameA(
+        PCSTR(std::ptr::null()),
+        PCSTR(username.as_ptr()),
+        PSID(0),
+        &mut sid_length,
+        PSTR(std::ptr::null_mut()),
+        &mut domain_length,
+        std::ptr::null_mut(),
+    );
+
+    let mut sid_buf: Vec<u8> = vec![0; sid_length as usize];
+    let mut domain_buf: Vec<u8> = vec![0; domain_length as usize];
+    let mut peuse = SID_NAME_USE(0);
+    LookupAccountNameA(
+        PCSTR(std::ptr::null()),
+        PCSTR(username.as_ptr()),
+        PSID(sid_buf.as_mut_ptr() as isize),
+        &mut sid_length,
+        PSTR(domain_buf.as_mut_ptr()),
+        &mut domain_length,
+        &mut peuse,
+    );
+
+    let mut string_sid_ptr = PSTR(std::ptr::null_mut());
+    ConvertSidToStringSidA(PSID(sid_buf.as_mut_ptr() as isize), &mut string_sid_ptr);
+
+    let string_sid_cstr = std::ffi::CStr::from_ptr(string_sid_ptr.0 as *const _);
+    let string_sid = string_sid_cstr.to_str().unwrap();
+    let packages = pm.FindPackagesByUserSecurityId(windows::core::HSTRING::from(string_sid))?;
+    LocalFree(std::mem::transmute(string_sid_ptr.0));
+    std::mem::forget(string_sid_ptr);
+    std::mem::forget(string_sid_cstr);
+
     for p in packages {
         // Oh my rust...
 
