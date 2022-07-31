@@ -1,4 +1,5 @@
 use std::io::Write;
+use switch::ListContentProvider;
 
 use windows::{
     core::*,
@@ -356,15 +357,17 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
             // but I need a list of windows excluding the quakerun host term window.
             // Which is what WindowProvider does. Maybe fix this later.
             let wp = switch::WindowProvider::new();
-            let windows = wp.get_filtered_window_list();
-            let terminals: Vec<&&switch::windowprovider::WindowInfo> = windows.iter().filter(|&&w| {
+            let windows = wp.query_for_items();
+            let terminals: Vec<&&switch::windowprovider::WindowInfo> = windows.iter().map(|&w| {
+                w.as_any().downcast_ref::<&switch::windowprovider::WindowInfo>().unwrap()
+            }).filter(|&&w| {
                 w.image_name == "WindowsTerminal"
             }).collect();
 
             if terminals.len() == 0 {
-                let btm_path = "%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe";
+                let wt_path = "%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe\0";
                 let mut expanded: [u8; 512] = [0; 512];
-                let len = windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(btm_path.as_ptr()), &mut expanded) as usize;
+                let len = windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(wt_path.as_ptr()), &mut expanded) as usize;
                 let cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
                 let _  = switch::create_process::create_process(cmdline);
             } else {

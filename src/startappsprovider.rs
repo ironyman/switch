@@ -2,6 +2,7 @@ use std::io::Read;
 use serde::{Serialize, Deserialize};
 
 use crate::listcontentprovider::ListContentProvider;
+use crate::listcontentprovider::ListItem;
 
 use windows::core::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -19,7 +20,7 @@ use crate::log::*;
 
 pub struct StartAppsProvider {
     apps: Vec<AppEntry>,
-    filter: String,
+    query: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -80,6 +81,12 @@ mod system_time_format {
                 Err(serde::de::Error::custom(e))
             }
         }
+    }
+}
+
+impl ListItem for AppEntry {
+    fn as_any(&self) -> &dyn std::any::Any {
+        return self;
     }
 }
 
@@ -309,7 +316,7 @@ impl StartAppsProvider {
     pub fn new() -> Box<Self> {
         // let mut new = Box::new(StartAppsProvider {
         //     apps: vec![],
-        //     filter: "".into(),
+        //     query: "".into(),
         // });
 
         // new.fill();
@@ -317,7 +324,7 @@ impl StartAppsProvider {
 
         return Box::new(StartAppsProvider {
             apps: Self::enumerate_start_apps().unwrap(),
-            filter: "".into(),
+            query: "".into(),
         });
     }
 
@@ -378,37 +385,18 @@ impl StartAppsProvider {
         return Ok(apps);
     }
 
-    fn get_filtered_app_list(&self) -> Vec<&AppEntry> {
-        // self.apps.iter().filter(|&p| {
-        //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
-        // }).collect()
-        return self.apps.iter().filter(|&app| {
-            if app.name.to_lowercase().contains(&self.filter) {
-                return true;
-            }
-
-            if let AppExecutableInfo::Link{ ext: _, target_path } = &app.exe_info {
-                if target_path.to_lowercase().contains(&self.filter) {
-                    return true;
-                }
-            }
-
-            return false;
-        }).collect();
-    }
-
-    // If started with a filter query that doesn't match a startapp
+    // If started with a query that doesn't match a startapp
     // then start as a command.
     fn start_command(&mut self, elevated: bool) {
-        let args: Vec<&str> = self.filter.split(" ").collect();
+        let args: Vec<&str> = self.query.split(" ").collect();
         if args.len() < 1 {
             return;
         }
 
-        crate::trace!("start", log::Level::Error, "Starting command: {:?}", self.filter);
+        crate::trace!("start", log::Level::Error, "Starting command: {:?}", self.query);
 
         let cmd = AppEntry {
-            name: self.filter.clone(),
+            name: self.query.clone(),
             path: args[0].into(),
             params: if args.len() > 1 { args[1..].join(" ") } else { "".to_string() },
             exe_info: AppExecutableInfo::Exe {
@@ -429,8 +417,34 @@ impl StartAppsProvider {
 }
 
 impl ListContentProvider for StartAppsProvider {
-    fn get_filtered_list(&self) -> Vec<String> {
-        self.get_filtered_app_list().iter().map(|&app| {
+    // type ListItem = AppEntry;
+
+    // fn query_for_items(&self) -> Vec<&AppEntry> {
+    fn query_for_items(&self) -> Vec<&dyn ListItem> {
+        // self.apps.iter().filter(|&p| {
+        //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
+        // }).collect()
+        return self.apps.iter().filter(|&app| {
+            if app.name.to_lowercase().contains(&self.query) {
+                return true;
+            }
+
+            if let AppExecutableInfo::Link{ ext: _, target_path } = &app.exe_info {
+                if target_path.to_lowercase().contains(&self.query) {
+                    return true;
+                }
+            }
+
+            return false;
+        }).map(|app| {
+            app as &dyn ListItem
+        }).collect()
+    }
+
+    fn query_for_names(&self) -> Vec<String> {
+        self.query_for_items().iter().map(|&app| {
+            app.as_any().downcast_ref::<AppEntry>().unwrap()
+        }).map(|app| {
             match &app.exe_info {
                 AppExecutableInfo::Exe { ext } => {
                     let mut name = app.name.clone();
@@ -450,33 +464,37 @@ impl ListContentProvider for StartAppsProvider {
         }).collect::<Vec<String>>()
     }
 
-    fn set_filter(&mut self, filter: String) {
-        self.filter = filter;
+    fn set_query(&mut self, query: String) {
+        self.query = query;
+
+        if std::path::Path::new(&self.query).exists() {
+
+        }
     }
 
     fn start(&mut self, filtered_index: usize) {
-        let apps = self.get_filtered_app_list();
+        let apps = self.query_for_items();
         if filtered_index >= apps.len() {
             self.start_command(false);
             return;
         }
-        crate::trace!("start", log::Level::Info, "Start app medium: {:?}", apps[filtered_index]);
+        crate::trace!("start", log::Level::Info, "Start app medium: {:?}", apps[filtered_index].as_any().downcast_ref::<AppEntry>().unwrap());
 
-        if let Err(e) = apps[filtered_index].start_medium() {
+        if let Err(e) = apps[filtered_index].as_any().downcast_ref::<AppEntry>().unwrap().start_medium() {
             // if let Err(e) = apps[filtered_index].start_medium(Some(&self.disp_shell)) {
             crate::trace!("start", log::Level::Info, "Start app error: {:?}", e);
         }
     }
 
     fn start_elevated(&mut self, filtered_index: usize) {
-        let apps = self.get_filtered_app_list();
+        let apps = self.query_for_items();
         if filtered_index >= apps.len() {
             self.start_command(true);
             return;
         }
-        crate::trace!("start", log::Level::Info, "Start app elevated: {:?}", apps[filtered_index]);
+        crate::trace!("start", log::Level::Info, "Start app elevated: {:?}", apps[filtered_index].as_any().downcast_ref::<AppEntry>().unwrap());
 
-        apps[filtered_index].start();
+        apps[filtered_index].as_any().downcast_ref::<AppEntry>().unwrap().start();
     }
 
     fn remove(&mut self, _filtered_index: usize) {

@@ -70,7 +70,7 @@ impl<'a> SearchableListApp {
     fn next_provider(&mut self) {
         self.list_state = ListState::default();
         self.input_buffer.clear();
-        self.set_filter("".into());
+        self.set_query("".into());
         self.selected_provider = if self.selected_provider >= self.providers.len() - 1 {
             0
         } else {
@@ -78,13 +78,13 @@ impl<'a> SearchableListApp {
         };
     }
 
-    fn set_filter(&mut self, filter: String) {
-        self.current_provider_mut().set_filter(filter);
+    fn set_query(&mut self, filter: String) {
+        self.current_provider_mut().set_query(filter);
     }
 
     fn list_next(&mut self) {
         // let list = self.list.len();
-        let list = self.current_provider().get_filtered_list();
+        let list = self.current_provider().query_for_items();
         if list.len() == 0 {
             return;
         }
@@ -104,7 +104,7 @@ impl<'a> SearchableListApp {
 
     fn list_previous(&mut self) {
         // let list = self.list.len();
-        let list = self.current_provider().get_filtered_list();
+        let list = self.current_provider().query_for_items();
         if list.len() == 0 {
             return;
         }
@@ -124,7 +124,7 @@ impl<'a> SearchableListApp {
 
     fn list_page_next(&mut self) {
         // let list = self.list.len();
-        let list = self.current_provider().get_filtered_list();
+        let list = self.current_provider().query_for_items();
         if list.len() == 0 {
             return;
         }
@@ -145,7 +145,7 @@ impl<'a> SearchableListApp {
 
     fn list_page_prev(&mut self) {
         // let list = self.list.len();
-        let list = self.current_provider().get_filtered_list();
+        let list = self.current_provider().query_for_items();
         if list.len() == 0 {
             return;
         }
@@ -235,7 +235,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let selected_mode = matches.value_of("mode").unwrap_or("window");
     if selected_mode == "window" {
         app.list_next();
-        if app.current_provider().get_filtered_list().len() > 1 {
+        if app.current_provider().query_for_items().len() > 1 {
             app.list_next();
         }
     } else if selected_mode == "startapps" {
@@ -287,7 +287,7 @@ fn run_app<B: Backend>(
                             return Ok(())
                         }
                         app.input_buffer.push(c);
-                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                        app.set_query(app.input_buffer.iter().cloned().collect::<String>());
                         app.list_state.select(Some(0));
                     },
                     KeyCode::Left => app.list_unselect(),
@@ -300,7 +300,7 @@ fn run_app<B: Backend>(
                         } else {
                             app.input_buffer.pop();
                         }
-                        app.set_filter(app.input_buffer.iter().cloned().collect::<String>());
+                        app.set_query(app.input_buffer.iter().cloned().collect::<String>());
                         app.list_state.select(Some(0));
                     },
                     KeyCode::Esc => {
@@ -321,7 +321,7 @@ fn run_app<B: Backend>(
 
                         //set_foreground_window_in_foreground(app.list[selected].windowh);
                         // std::assert!(set_foreground_window(app.list[selected].windowh).is_ok());
-                        // set_foreground_window_ex(app.get_filtered_list()[selected].windowh);
+                        // set_foreground_window_ex(app.query_for_items()[selected].windowh);
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             switch::trace!("start", log::Level::Info, "Start app: KeyModifiers::CONTROL");
                             app.current_provider_mut().start_elevated(selected);
@@ -376,7 +376,7 @@ fn run_app<B: Backend>(
 fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
     // Iterate through all elements in the `items` app and append some debug text to it.
     let items: Vec<ListItem> = app.current_provider()
-        .get_filtered_list()
+        .query_for_names()
         .iter()
         .map(|i| {
             // let mut lines = vec![Spans::from(i.0)];

@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::any::Any;
 
 use windows::{
     Win32::Foundation::*,
@@ -31,7 +32,10 @@ use windows::{
     },
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use crate::setforegroundwindow::set_foreground_window_terminal;
+use crate::{
+    setforegroundwindow::set_foreground_window_terminal,
+    listcontentprovider::ListItem
+};
 use crate::listcontentprovider::ListContentProvider;
 
 use crate::log::*;
@@ -45,6 +49,12 @@ pub struct WindowInfo {
     pub image_name: String,
     pub ex_style: WINDOW_EX_STYLE,
     pub style: WINDOW_STYLE,
+}
+
+impl ListItem for WindowInfo {
+    fn as_any(&self) -> &dyn Any {
+        return self;
+    }
 }
 
 impl Drop for WindowInfo {
@@ -169,7 +179,7 @@ pub fn getppid(pid: u32) -> u32 {
 
 pub struct WindowProvider {
     windows: Vec<WindowInfo>,
-    filter: String,
+    query: String,
     terminal_host_pid: u32,
 }
 
@@ -179,12 +189,17 @@ impl WindowProvider {
         let terminal_host_pid = getppid(quakerun_pid);
         Box::new(WindowProvider {
             windows: enum_window().unwrap(),
-            filter: "".into(),
+            query: "".into(),
             terminal_host_pid,
         })
     }
+}
 
-    pub fn get_filtered_window_list(&self) -> Vec<&WindowInfo> {
+impl ListContentProvider for WindowProvider {
+    // type ListItem = WindowInfo;
+
+    // fn query_for_items(&self) -> Vec<&WindowInfo> {
+    fn query_for_items(&self) -> Vec<&dyn ListItem> {
         if self.windows.len() <= 1 {
             return vec![]
         }
@@ -194,35 +209,35 @@ impl WindowProvider {
                 return false;
             }
 
-            if w.image_name.to_lowercase().contains(&self.filter) {
+            if w.image_name.to_lowercase().contains(&self.query) {
                 return true;
             }
-            if w.window_text.to_lowercase().contains(&self.filter) {
+            if w.window_text.to_lowercase().contains(&self.query) {
                 return true;
             }
             return false;
+        }).map(|w| {
+            w as &dyn ListItem
         }).collect()
     }
-}
 
-impl ListContentProvider for WindowProvider {
-    fn get_filtered_list(&self) -> Vec<String> {
-        self.get_filtered_window_list().iter().map(|&w| {
-            w.to_string()
+    fn query_for_names(&self) -> Vec<String> {
+        self.query_for_items().iter().map(|&w| {
+            w.as_any().downcast_ref::<WindowInfo>().expect("This should work").to_string()
         }).collect::<Vec<String>>()
     }
 
-    fn set_filter(&mut self, filter: String) {
-        self.filter = filter;
+    fn set_query(&mut self, query: String) {
+        self.query = query;
     }
 
     fn start(&mut self, filtered_index: usize) {
-        let windows = self.get_filtered_window_list();
+        let windows = self.query_for_items();
         if filtered_index >= windows.len() {
             return;
         }
-        crate::trace!("start", log::Level::Info, "Activate window: {}", windows[filtered_index]);
-        set_foreground_window_terminal(windows[filtered_index].windowh).unwrap();
+        crate::trace!("start", log::Level::Info, "Activate window: {}", windows[filtered_index].as_any().downcast_ref::<WindowInfo>().unwrap());
+        set_foreground_window_terminal(windows[filtered_index].as_any().downcast_ref::<WindowInfo>().unwrap().windowh).unwrap();
     }
 
     fn start_elevated(&mut self, filtered_index: usize) {
@@ -230,14 +245,14 @@ impl ListContentProvider for WindowProvider {
     }
 
     fn remove(&mut self, filtered_index: usize) {
-        let windows = self.get_filtered_window_list();
+        let windows = self.query_for_items();
         if filtered_index >= windows.len() {
             return;
         }
 
         unsafe {
             // windows::Win32::UI::WindowsAndMessaging::CloseWindow(windows[filtered_index].windowh);
-            SendMessageW(windows[filtered_index].windowh, WM_CLOSE, WPARAM(0), LPARAM(0));
+            SendMessageW(windows[filtered_index].as_any().downcast_ref::<WindowInfo>().unwrap().windowh, WM_CLOSE, WPARAM(0), LPARAM(0));
 
         }
         self.windows =  enum_window().unwrap();
