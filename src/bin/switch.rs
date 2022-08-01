@@ -294,6 +294,9 @@ fn run_app<B: Backend>(
                     KeyCode::Down => app.list_next(),
                     KeyCode::Up => app.list_previous(),
                     KeyCode::Backspace => {
+                        if app.input_buffer.len() == 0 {
+                            continue;
+                        }
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
                             app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
