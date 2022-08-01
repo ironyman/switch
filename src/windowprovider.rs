@@ -55,6 +55,10 @@ impl ListItem for WindowInfo {
     fn as_any(&self) -> &dyn Any {
         return self;
     }
+
+    fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
+        return self;
+    }
 }
 
 impl Drop for WindowInfo {
@@ -231,17 +235,13 @@ impl ListContentProvider for WindowProvider {
         self.query = query;
     }
 
-    fn start(&mut self, filtered_index: usize) {
+    fn start(&mut self, filtered_index: usize, _elevated: bool) {
         let windows = self.query_for_items();
         if filtered_index >= windows.len() {
             return;
         }
         crate::trace!("start", log::Level::Info, "Activate window: {}", windows[filtered_index].as_any().downcast_ref::<WindowInfo>().unwrap());
         set_foreground_window_terminal(windows[filtered_index].as_any().downcast_ref::<WindowInfo>().unwrap().windowh).unwrap();
-    }
-
-    fn start_elevated(&mut self, filtered_index: usize) {
-        self.start(filtered_index);
     }
 
     fn remove(&mut self, filtered_index: usize) {

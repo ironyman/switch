@@ -125,7 +125,7 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
         match &extension[..] {
             "exe" | "msc" | "cpl" | "appref-ms" => {
                 apps.push(AppEntry {
-                    name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
+                    name: de.path().file_name().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
                     path: de.path().to_str().unwrap().into(),
                     exe_info: AppExecutableInfo::Exe {
                         ext: extension,
@@ -190,7 +190,7 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
                     // let target_path = std::str::from_utf8(&target_path[0..len as usize]).unwrap();
                     
                     apps.push(AppEntry {
-                        name: de.path().file_stem().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
+                        name: de.path().file_name().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
                         path: de.path().to_str().unwrap().into(),
                         exe_info: AppExecutableInfo::Link {
                             ext: extension,

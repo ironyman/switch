@@ -324,10 +324,10 @@ fn run_app<B: Backend>(
                         // set_foreground_window_ex(app.query_for_items()[selected].windowh);
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             switch::trace!("start", log::Level::Info, "Start app: KeyModifiers::CONTROL");
-                            app.current_provider_mut().start_elevated(selected);
+                            app.current_provider_mut().start(selected, true);
                         } else {
                             switch::trace!("start", log::Level::Info, "Start app: KeyModifiers::CONTROL no");
-                            app.current_provider_mut().start(selected);
+                            app.current_provider_mut().start(selected, false);
                         }
 
                         return Ok(())

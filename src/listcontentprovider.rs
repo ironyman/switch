@@ -6,11 +6,11 @@ pub trait ListContentProvider {
     fn query_for_items(&self) -> Vec<&dyn ListItem>;
     fn query_for_names(&self) -> Vec<String>;
     fn set_query(&mut self, filter: String);
-    fn start(&mut self, filtered_index: usize);
-    fn start_elevated(&mut self, filtered_index: usize);
+    fn start(&mut self, filtered_index: usize, elevated: bool);
     fn remove(&mut self, filtered_index: usize);
 }
 
 pub trait ListItem /*where Self: Into<String>*/  {
     fn as_any(&self) -> &dyn std::any::Any;
+    fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
 }
