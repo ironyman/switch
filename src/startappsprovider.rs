@@ -444,8 +444,10 @@ impl StartAppsProvider {
         }
 
         history_apps = history_apps.into_iter().rev().collect::<Vec<AppEntry>>();
+        for a in history_apps.iter() {
+            crate::trace!("db", log::Level::Info, "enumerate_start_apps history\n{:?}", a);
+        }
         apps.extend(history_apps);
-        crate::trace!("init", log::Level::Info, "enumerate_start_apps apps {}, {:?}", apps.len(), apps);
 
         let mut file = std::fs::File::open(path)?;
         let mut buf = String::new();
@@ -478,7 +480,9 @@ impl StartAppsProvider {
         }
     }
 
-    fn merge_history(new_key: &[u8],
+    // This is actually called on read from db so you it doesn't make sense to 
+    // set last_use_time in this function...
+    fn merge_history(_new_key: &[u8],
                      old_value: Option<&[u8]>,
                      operands: &rocksdb::MergeOperands)
                      -> Option<Vec<u8>> {
@@ -490,23 +494,50 @@ impl StartAppsProvider {
         //     return None;
         // }
 
+        // unsafe {
+        //     windows::Win32::System::Diagnostics::Debug::DebugBreak();
+        // }
+
+        let mut new_value: Vec<u8> = Vec::with_capacity(operands.len());
+        for op in operands {
+            new_value.extend_from_slice(op);
+            // for e in op {
+            //     result.push(*e)
+            // }
+        }
+        
         if let None = old_value {
-            let mut result: Vec<u8> = Vec::with_capacity(operands.len());
-            for op in operands {
-                result.extend_from_slice(op);
-                // for e in op {
-                //     result.push(*e)
-                // }
-            }
-            crate::trace!("db", log::Level::Info, "Merge first value on {:?}", std::str::from_utf8(new_key).unwrap());
-            return Some(result);
+            // crate::trace!("db", log::Level::Info, "Merge first value on {:?}", std::str::from_utf8(new_key).unwrap());
+            return Some(new_value);
+            // let mut deserialized: AppEntry = bincode::deserialize(&new_value).ok()?;
+            // deserialized.use_count += 1;
+            // deserialized.last_use_time = chrono::Utc::now();
+            // return bincode::serialize(&deserialized).ok();
         }
 
-        crate::trace!("db", log::Level::Info, "Merge value on {:?}", std::str::from_utf8(new_key).unwrap());
-        let mut deserialized: AppEntry = bincode::deserialize(old_value.unwrap()).ok()?;
+        // crate::trace!("db", log::Level::Info, "Merge value on {:?}", std::str::from_utf8(new_key).unwrap());
+        // let mut deserialized: AppEntry = bincode::deserialize(old_value.unwrap()).ok()?;
+        // deserialized.use_count += 1;
+        // deserialized.last_use_time = chrono::Utc::now();
+
+        let mut deserialized: AppEntry = bincode::deserialize(&new_value).ok()?;
         deserialized.use_count += 1;
-        deserialized.last_use_time = chrono::Utc::now();
+        // deserialized.last_use_time = chrono::Utc::now();
         return bincode::serialize(&deserialized).ok();
+    }
+
+    fn update_history(app: &AppEntry) {
+        if let Ok(db) = Self::open_history_db() {
+            let mut update_app = app.clone();
+            update_app.last_use_time = chrono::Utc::now();
+            match db.merge(&app.name, bincode::serialize(&update_app).unwrap()) {
+                Err(e) => {
+                    crate::trace!("db", log::Level::Error, "Merge history failed: {:?}", e);
+                },
+                _ => {},
+            }
+            // let _ = db.flush();
+        }
     }
 
     fn parse_query_app(app: &mut AppEntry) {
@@ -527,18 +558,6 @@ impl StartAppsProvider {
                 app.path = app.name.clone();
             },
             _ => {}
-        }
-
-        if let Ok(db) = Self::open_history_db() {
-            match db.merge(&app.name, bincode::serialize(&*app).unwrap()) {
-                Err(e) => {
-                    crate::trace!("db", log::Level::Error, "Merge history failed: {:?}", e);
-                },
-                _ => {
-                    crate::trace!("db", log::Level::Info, "Merge history succeeded");
-                },
-            }
-            // let _ = db.flush();
         }
     }
 
@@ -684,6 +703,8 @@ impl ListContentProvider for StartAppsProvider {
         if app as *const _ == query_app {
             StartAppsProvider::parse_query_app(app);
         }
+
+        Self::update_history(&*app);
 
         crate::trace!("start", log::Level::Info, "Start app elevated {:?}: {:?}", elevated, app);
 
