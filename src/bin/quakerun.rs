@@ -356,11 +356,11 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
             // This is not what WindowProvider is meant to be used for
             // but I need a list of windows excluding the quakerun host term window.
             // Which is what WindowProvider does. Maybe fix this later.
-            let wp = switch::WindowProvider::new();
+            let mut wp = switch::WindowProvider::new();
             let windows = wp.query_for_items();
-            let terminals: Vec<&&switch::windowprovider::WindowInfo> = windows.iter().map(|&w| {
-                w.as_any().downcast_ref::<&switch::windowprovider::WindowInfo>().unwrap()
-            }).filter(|&&w| {
+            let terminals: Vec<&switch::windowprovider::WindowInfo> = windows.iter().map(|w| {
+                (*w).as_any().downcast_ref::<switch::windowprovider::WindowInfo>().unwrap()
+            }).filter(|&w| {
                 w.image_name == "WindowsTerminal"
             }).collect();
 
@@ -371,7 +371,7 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 let cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
                 let _  = switch::create_process::create_process(cmdline);
             } else {
-                let current = terminals.iter().position(|&&t| t.windowh == GetForegroundWindow());
+                let current = terminals.iter().position(|&t| t.windowh == GetForegroundWindow());
                 let next = match current {
                     Some(index) => {
                         (index + 1) % terminals.len()

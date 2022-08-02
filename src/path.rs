@@ -21,16 +21,27 @@ pub fn get_app_data_path(file: &str) -> anyhow::Result<String> {
     // return Ok(path.to_str().to_owned().unwrap().to_string());
 }
 
+// Includes root directory if query is empty.
 pub fn get_directory_listing<IntoPath: Into<std::path::PathBuf>, IntoString: Into<String>>(path: IntoPath, query: IntoString) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    let dirs = std::fs::read_dir(&path.into());
-    let query = query.into();
+    let root = path.into();
+    let dirs = std::fs::read_dir(&root);
+    let query = (query.into() as String).to_lowercase();
     // let mut result = Vec::new() as Vec<std::path::PathBuf>;
-    return Ok(dirs?.filter_map(|d| {
+
+    let mut result = if query.len() == 0 {
+        vec![root]
+    } else {
+        vec![]
+    };
+
+    result.extend(dirs?.filter_map(|d| {
         if let Ok(d) = d {
-            if d.path().file_name().unwrap().to_str().unwrap().contains(&query) {
+            if d.path().file_name().unwrap().to_str().unwrap().to_lowercase().contains(&query) {
                 return Some(d.path());
             }
         }
         return None;
-    }).collect());
+    }).collect::<Vec<std::path::PathBuf>>());
+
+    return Ok(result);
 }

@@ -587,6 +587,24 @@ impl StartAppsProvider {
 
         return false;
     }
+
+    fn query_directory(&mut self) -> Vec<&mut dyn ListItem> {
+        if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
+            *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
+                let name = p.to_str().unwrap().to_owned();
+                return AppEntry {
+                    name: name.clone(),
+                    path: name,
+                    ..Default::default()
+                }
+            }).collect::<Vec<AppEntry>>();
+            return listing.iter_mut().map(|app| {
+                app as &mut dyn ListItem
+            }).collect::<Vec<&mut dyn ListItem>>();
+        } else {
+            return vec![];
+        }
+    }
 }
 
 impl ListContentProvider for StartAppsProvider {
@@ -641,17 +659,8 @@ impl ListContentProvider for StartAppsProvider {
         let query = self.get_query().to_string();
         let const_ref = unsafe { std::mem::transmute::<_, &StartAppsProvider>(self as *mut StartAppsProvider) };
         
-        if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
-            *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
-                let name = p.to_str().unwrap().to_owned();
-                return AppEntry {
-                    name,
-                    ..Default::default()
-                }
-            }).collect::<Vec<AppEntry>>();
-            return listing.iter_mut().map(|app| {
-                app as &mut dyn ListItem
-            }).collect::<Vec<&mut dyn ListItem>>();
+        if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
+            return self.query_directory();
         }
 
         let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()

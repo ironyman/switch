@@ -83,15 +83,14 @@ impl<'a> SearchableListApp {
     }
 
     fn list_next(&mut self) {
-        // let list = self.list.len();
-        let list = self.current_provider().query_for_items();
-        if list.len() == 0 {
+        let list_len = self.current_provider_mut().query_for_items().len();
+        if list_len == 0 {
             return;
         }
 
         let i = match self.list_state.selected() {
             Some(i) => {
-                if i >= list.len() - 1 {
+                if i >= list_len - 1 {
                     0
                 } else {
                     i + 1
@@ -103,16 +102,15 @@ impl<'a> SearchableListApp {
     }
 
     fn list_previous(&mut self) {
-        // let list = self.list.len();
-        let list = self.current_provider().query_for_items();
-        if list.len() == 0 {
+        let list_len = self.current_provider_mut().query_for_items().len();
+        if list_len == 0 {
             return;
         }
 
         let i = match self.list_state.selected() {
             Some(i) => {
                 if i == 0 {
-                    list.len() - 1
+                    list_len - 1
                 } else {
                     i - 1
                 }
@@ -123,16 +121,15 @@ impl<'a> SearchableListApp {
     }
 
     fn list_page_next(&mut self) {
-        // let list = self.list.len();
-        let list = self.current_provider().query_for_items();
-        if list.len() == 0 {
+        let list_len = self.current_provider_mut().query_for_items().len();
+        if list_len == 0 {
             return;
         }
 
         let i = match self.list_state.selected() {
             Some(i) => {
                 // -1 for input prompt
-                if i + self.screen_height as usize - 1 >= list.len() {
+                if i + self.screen_height as usize - 1 >= list_len {
                     0
                 } else {
                     i + self.screen_height as usize - 1
@@ -144,9 +141,8 @@ impl<'a> SearchableListApp {
     }
 
     fn list_page_prev(&mut self) {
-        // let list = self.list.len();
-        let list = self.current_provider().query_for_items();
-        if list.len() == 0 {
+        let list_len = self.current_provider_mut().query_for_items().len();
+        if list_len == 0 {
             return;
         }
 
@@ -154,7 +150,7 @@ impl<'a> SearchableListApp {
             Some(i) => {
                 // -1 for input prompt
                 if i as isize - (self.screen_height as isize - 1) < 0 {
-                    list.len() - 1
+                    list_len - 1
                 } else {
                     i - (self.screen_height as usize - 1)
                 }
@@ -235,7 +231,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let selected_mode = matches.value_of("mode").unwrap_or("window");
     if selected_mode == "window" {
         app.list_next();
-        if app.current_provider().query_for_items().len() > 1 {
+        if app.current_provider_mut().query_for_items().len() > 1 {
             app.list_next();
         }
     } else if selected_mode == "startapps" {
@@ -378,7 +374,7 @@ fn run_app<B: Backend>(
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
     // Iterate through all elements in the `items` app and append some debug text to it.
-    let items: Vec<ListItem> = app.current_provider()
+    let items: Vec<ListItem> = app.current_provider_mut()
         .query_for_names()
         .iter()
         .map(|i| {

@@ -2,13 +2,14 @@
 // #![feature(trait_alias)]
 
 pub use listcontentprovider::ListContentProvider;
+pub use listcontentprovider::ListItem;
 pub use windowprovider::WindowProvider;
 pub use startappsprovider::StartAppsProvider;
 
 pub mod setforegroundwindow;
 pub mod startappsprovider;
 pub mod windowprovider;
-mod listcontentprovider;
+pub mod listcontentprovider;
 pub mod waitlist;
 pub mod console;
 pub mod windowgeometry;
