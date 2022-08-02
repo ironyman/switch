@@ -20,3 +20,17 @@ pub fn get_app_data_path(file: &str) -> anyhow::Result<String> {
     return path.into_os_string().into_string().map_err(|x| anyhow::Error::msg(x.into_string().unwrap()));
     // return Ok(path.to_str().to_owned().unwrap().to_string());
 }
+
+pub fn get_directory_listing<IntoPath: Into<std::path::PathBuf>, IntoString: Into<String>>(path: IntoPath, query: IntoString) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let dirs = std::fs::read_dir(&path.into());
+    let query = query.into();
+    // let mut result = Vec::new() as Vec<std::path::PathBuf>;
+    return Ok(dirs?.filter_map(|d| {
+        if let Ok(d) = d {
+            if d.path().file_name().unwrap().to_str().unwrap().contains(&query) {
+                return Some(d.path());
+            }
+        }
+        return None;
+    }).collect());
+}

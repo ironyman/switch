@@ -203,12 +203,12 @@ impl ListContentProvider for WindowProvider {
     // type ListItem = WindowInfo;
 
     // fn query_for_items(&self) -> Vec<&WindowInfo> {
-    fn query_for_items(&self) -> Vec<&dyn ListItem> {
+    fn query_for_items(&mut self) -> Vec<&mut dyn ListItem> {
         if self.windows.len() <= 1 {
             return vec![]
         }
 
-        self.windows.iter().filter(|&w| {
+        self.windows.iter_mut().filter(|w| {
             if w.process_id == self.terminal_host_pid {
                 return false;
             }
@@ -221,13 +221,13 @@ impl ListContentProvider for WindowProvider {
             }
             return false;
         }).map(|w| {
-            w as &dyn ListItem
+            w as &mut dyn ListItem
         }).collect()
     }
 
-    fn query_for_names(&self) -> Vec<String> {
-        self.query_for_items().iter().map(|&w| {
-            w.as_any().downcast_ref::<WindowInfo>().expect("This should work").to_string()
+    fn query_for_names(&mut self) -> Vec<String> {
+        self.query_for_items().iter().map(|w| {
+            (*w).as_any().downcast_ref::<WindowInfo>().expect("This should work").to_string()
         }).collect::<Vec<String>>()
     }
 

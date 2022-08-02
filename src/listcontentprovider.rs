@@ -3,8 +3,8 @@ pub trait ListContentProvider {
     // Vec<Box<dyn ListContentProvider>>
     // type ListItem;
     // fn query_for_items(&self) -> Vec<&<Self as ListContentProvider>::ListItem>;
-    fn query_for_items(&self) -> Vec<&dyn ListItem>;
-    fn query_for_names(&self) -> Vec<String>;
+    fn query_for_items(&mut self) -> Vec<&mut dyn ListItem>;
+    fn query_for_names(&mut self) -> Vec<String>;
     fn set_query(&mut self, filter: String);
     fn start(&mut self, filtered_index: usize, elevated: bool);
     fn remove(&mut self, filtered_index: usize);

@@ -46,7 +46,9 @@ pub enum AppExecutableInfo {
         // c:\windows\system32\cmd
         // cmd is the query part and the stuff before is the valid part.
         path: std::path::PathBuf,
+        // TODO: Maybe we can reuse the path in the parent?
         query: String,
+        listing: Vec<AppEntry>,
     },
     Url {
     },
@@ -573,48 +575,6 @@ impl StartAppsProvider {
         return &mut self.apps[0];
     }
 
-    // Keep this in sync with query_for_items. 
-    // Alternatively could probably transmute from & to &mut.
-    // https://www.reddit.com/r/rust/comments/afgp9c/is_it_idiomatic_to_write_almost_identical/
-    // That means I need a mut version of should_show_query_app?
-    fn query_for_items_mut(&mut self) -> Vec<&mut dyn ListItem> {
-        // self.apps.iter().filter(|&p| {
-        //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
-        // }).collect()
-        let query = self.get_query().to_string();
-
-        if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
-
-        }
-
-        let const_ref =  unsafe { std::mem::transmute::<_, &StartAppsProvider>(self as *mut StartAppsProvider) };
-
-        let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
-            .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
-            .filter(|app| {
-            if app.name.to_lowercase().contains(&query) {
-                return true;
-            }
-
-            if let AppExecutableInfo::Link { target_path, .. } = &app.exe_info {
-                if target_path.to_lowercase().contains(&query) {
-                    return true;
-                }
-            }
-
-            return false;
-        }).collect();
-
-        if result.len() > 1 && result[1].exact_match(&query)  {
-            result.remove(0);
-        }
-
-        let result = result.into_iter().map(|app| {
-            app as &mut dyn ListItem
-        }).collect::<Vec<&mut dyn ListItem>>();
-        return result;
-    }
-
     fn should_show_query_app(&self) -> bool {
         let query_words = self.get_query().split(" ").collect::<Vec<_>>().len();
         if query_words > 1 {
@@ -632,48 +592,106 @@ impl StartAppsProvider {
 impl ListContentProvider for StartAppsProvider {
     // type ListItem = AppEntry;
 
-    // fn query_for_items(&self) -> Vec<&AppEntry> {
-    // Note that the first app in self.apps is the query AppEntry.
-    // Only show query AppeEntry when query_words >= 2 i.e. when user wants to pass cmdline parameters.
-    // If the query cmdline doesn't include parameters then any app the user wants to run should be in search result.
-    // Keep this in sync with query_for_items_mut. 
-    fn query_for_items(&self) -> Vec<&dyn ListItem> {
+    // // fn query_for_items(&self) -> Vec<&AppEntry> {
+    // // Note that the first app in self.apps is the query AppEntry.
+    // // Only show query AppeEntry when query_words >= 2 i.e. when user wants to pass cmdline parameters.
+    // // If the query cmdline doesn't include parameters then any app the user wants to run should be in search result.
+    // // Keep this in sync with query_for_items_mut. 
+    // fn query_for_items(&self) -> Vec<&dyn ListItem> {
+    //     // self.apps.iter().filter(|&p| {
+    //     //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
+    //     // }).collect()
+        
+    //     if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
+
+    //     }
+
+    //     let mut result: Vec<&AppEntry> = self.apps.iter()
+    //         .skip(if self.should_show_query_app() { 0 } else { 1 })
+    //         .filter(|&app| {
+    //         if app.name.to_lowercase().contains(self.get_query()) {
+    //             return true;
+    //         }
+
+    //         if let AppExecutableInfo::Link{ target_path, .. } = &app.exe_info {
+    //             if target_path.to_lowercase().contains(self.get_query()) {
+    //                 return true;
+    //             }
+    //         }
+
+    //         return false;
+    //     }).collect();
+        
+    //     if result.len() > 1 && result[1].exact_match(self.get_query())  {
+    //         result.remove(0);
+    //     }
+
+    //     return result.iter().map(|&app| {
+    //         app as &dyn ListItem
+    //     }).collect()
+    // }
+    // Alternatively could probably transmute from & to &mut.
+    // https://www.reddit.com/r/rust/comments/afgp9c/is_it_idiomatic_to_write_almost_identical/
+    // That means I need a mut version of should_show_query_app?
+    fn query_for_items(&mut self) -> Vec<&mut dyn ListItem> {
         // self.apps.iter().filter(|&p| {
         //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
         // }).collect()
         
-        if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
-
+        let query = self.get_query().to_string();
+        let const_ref = unsafe { std::mem::transmute::<_, &StartAppsProvider>(self as *mut StartAppsProvider) };
+        
+        if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
+            *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
+                let name = p.to_str().unwrap().to_owned();
+                return AppEntry {
+                    name,
+                    ..Default::default()
+                }
+            }).collect::<Vec<AppEntry>>();
+            return listing.iter_mut().map(|app| {
+                app as &mut dyn ListItem
+            }).collect::<Vec<&mut dyn ListItem>>();
         }
 
-        let mut result: Vec<&AppEntry> = self.apps.iter()
-            .skip(if self.should_show_query_app() { 0 } else { 1 })
-            .filter(|&app| {
-            if app.name.to_lowercase().contains(self.get_query()) {
+        let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
+            .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
+            .filter(|app| {
+            if app.name.to_lowercase().contains(&query) {
                 return true;
             }
 
-            if let AppExecutableInfo::Link{ target_path, .. } = &app.exe_info {
-                if target_path.to_lowercase().contains(self.get_query()) {
+            if let AppExecutableInfo::Link { target_path, .. } = &app.exe_info {
+                if target_path.to_lowercase().contains(&query) {
                     return true;
                 }
             }
 
             return false;
         }).collect();
-        
-        if result.len() > 1 && result[1].exact_match(self.get_query())  {
+        /*
+        Error on self.apps.iter_mut line, 
+        cannot borrow `self.apps` as mutable more than once at a time
+        second mutable borrow occurs hererustcE0499
+        startappsprovider.rs(644, 76): first mutable borrow occurs here
+        startappsprovider.rs(636, 24): let's call the lifetime of this reference `'1`
+        startappsprovider.rs(652, 20): returning this value requires that `*self` is borrowed for `'1`
+        but I can fix this by putting the first mut borrow, self.get_query_app_mut in its own function o.O
+        */
+
+        if result.len() > 1 && result[1].exact_match(&query)  {
             result.remove(0);
         }
 
-        return result.iter().map(|&app| {
-            app as &dyn ListItem
-        }).collect()
+        let result = result.into_iter().map(|app| {
+            app as &mut dyn ListItem
+        }).collect::<Vec<&mut dyn ListItem>>();
+        return result;
     }
 
-    fn query_for_names(&self) -> Vec<String> {
-        self.query_for_items().iter().map(|&app| {
-            app.as_any().downcast_ref::<AppEntry>().unwrap()
+    fn query_for_names(&mut self) -> Vec<String> {
+        self.query_for_items().iter().map(|app| {
+            (*app).as_any().downcast_ref::<AppEntry>().unwrap()
         }).map(String::from).collect::<Vec<String>>()
     }
 
@@ -682,11 +700,16 @@ impl ListContentProvider for StartAppsProvider {
 
         let maybe_dir_entry = std::path::Path::new(&self.apps[0].name);
         if maybe_dir_entry.exists() {
-            self.apps[0].exe_info = AppExecutableInfo::DirEntry { path: maybe_dir_entry.to_owned(), query: "".to_owned() };
+            self.apps[0].exe_info = AppExecutableInfo::DirEntry { 
+                path: maybe_dir_entry.to_owned(),
+                query: "".to_owned(),
+                listing: vec![],
+            };
         } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
             self.apps[0].exe_info = AppExecutableInfo::DirEntry {
                 path: maybe_dir_entry.parent().unwrap().to_owned(),
                 query: maybe_dir_entry.file_name().unwrap().to_str().unwrap().to_owned(),
+                listing: vec![],
             };
         } else if self.apps[0].name.starts_with("http:") || self.apps[0].name.starts_with("https:") {
             self.apps[0].exe_info = AppExecutableInfo::Url {};
@@ -697,7 +720,7 @@ impl ListContentProvider for StartAppsProvider {
 
     fn start(&mut self, filtered_index: usize, elevated: bool) {
         let query_app = self.get_query_app() as *const _;
-        let mut apps = self.query_for_items_mut();
+        let mut apps = self.query_for_items();
         let app = apps[filtered_index].as_mut_any().downcast_mut::<AppEntry>().unwrap();
 
         if app as *const _ == query_app {
@@ -721,7 +744,7 @@ impl ListContentProvider for StartAppsProvider {
 
     fn remove(&mut self, filtered_index: usize) {
         let app = {
-            let mut apps = self.query_for_items_mut();
+            let mut apps = self.query_for_items();
             if filtered_index >= apps.len() {
                 return;
             }
