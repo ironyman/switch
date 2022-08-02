@@ -26,8 +26,8 @@ pub struct StartAppsProvider {
 pub enum AppExecutableInfo {
     // Includes msc, cpl, exes, things you can pass path to ShellExecute to start
     // name in AppEntry is file name and does not include extension nor '.'.
+    // Essence is that these are indexed executable files.
     Exe {
-        ext: String,
     },
     // References to other files, also can be started by passing path to ShellExecute
     // but we want to save the target_path.
@@ -40,6 +40,15 @@ pub enum AppExecutableInfo {
         identity_id: String,
         publisher_id: String,
         application_id: String,
+    },
+    DirEntry {
+        // A directory entry query has a valid part and a query part i.e.
+        // c:\windows\system32\cmd
+        // cmd is the query part and the stuff before is the valid part.
+        path: std::path::PathBuf,
+        query: String,
+    },
+    Url {
     },
 }
 
@@ -98,7 +107,11 @@ impl AppEntry {
     // Switch usually runs as elevated so that it can set foreground.
     fn start(&self) -> anyhow::Result<()> {
         match &self.exe_info {
-            AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
+            AppExecutableInfo::Exe { .. } 
+            | AppExecutableInfo::Link { .. }
+            | AppExecutableInfo::Url {}
+            | AppExecutableInfo::DirEntry { .. }
+            => {
                 unsafe {
                     let path = (self.path.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
                     let params = (self.params.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
@@ -247,7 +260,11 @@ impl AppEntry {
                 let disp_shell = folder_view.Application().unwrap().cast::<IShellDispatch2>().unwrap();
             // }
             match &self.exe_info {
-                AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
+                AppExecutableInfo::Exe { .. } 
+                | AppExecutableInfo::Link { .. }
+                | AppExecutableInfo::Url {}
+                | AppExecutableInfo::DirEntry { .. }
+                => {
                     let empty = crate::com::Variant::from("".to_owned());
                     let zero = crate::com::Variant::from(SW_SHOWNORMAL.0 as i32);
                     let params = crate::com::Variant::from(self.params.clone());
@@ -285,7 +302,7 @@ impl AppEntry {
     fn start_medium(&self) -> anyhow::Result<()> {
         return self.start_medium_explorer();
         // let shell_cmd = match &self.exe_info {
-        //     AppExecutableInfo::Exe { ext: _ } | AppExecutableInfo::Link { ext: _, target_path: _ } => {
+        //     AppExecutableInfo::Exe { .. } | AppExecutableInfo::Link { .. } => {
         //         self.path.to_owned()
         //     },
         //     AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
@@ -321,8 +338,25 @@ impl Default for AppEntry {
             params: "".into(),
             use_count: 0,
             last_use_time: chrono::Utc::now(),
-            exe_info: AppExecutableInfo::Exe { ext: "".into() }
+            exe_info: AppExecutableInfo::Exe {}
         };
+    }
+}
+
+impl From<&AppEntry> for String {
+    fn from(app: &AppEntry) -> String {
+        match &app.exe_info {
+            AppExecutableInfo::Exe { .. } | AppExecutableInfo::Url {} | AppExecutableInfo::DirEntry { .. } => {
+                let name = app.name.clone();
+                return name;
+            },
+            AppExecutableInfo::Link { target_path, .. } => {
+                return app.name.clone() + " (" + target_path + ")";
+            },
+            AppExecutableInfo::Appx { .. } => {
+                return app.name.clone();
+            }
+        }
     }
 }
 
@@ -377,6 +411,17 @@ impl StartAppsProvider {
     //     }
     // }
 
+    fn open_history_db() -> std::result::Result<rocksdb::DB, rocksdb::Error> {
+        // let db = rocksdb::DB::open_default(crate::path::get_app_data_path("history").unwrap()).unwrap();
+        // let _ = db.put(&app.name, bincode::serialize(&*app).unwrap());
+        let mut opts = rocksdb::Options::default();
+        opts.create_if_missing(true);
+        // opts.set_merge_operator("merge history operator", merge_history, merge_history);
+        // opts.set_merge_operator_associative("merge history operator", merge_history);
+        opts.set_merge_operator_associative("merge history operator", StartAppsProvider::merge_history);
+        return rocksdb::DB::open(&opts, crate::path::get_app_data_path("history").unwrap());
+    }
+
     fn enumerate_start_apps() -> anyhow::Result<Vec<AppEntry>> {
         let path = crate::path::get_app_data_path("apps.json")?;
 
@@ -385,17 +430,23 @@ impl StartAppsProvider {
         // }
         let mut apps: Vec<AppEntry> = vec![AppEntry { 
             name: String::new(),
-            exe_info: AppExecutableInfo::Exe { ext: "".into() },
+            exe_info: AppExecutableInfo::Exe {},
             // Fill in the rest later.
             ..Default::default()
         }];
 
-        if let Ok(db) = rocksdb::DB::open_default(crate::path::get_app_data_path("history.db").unwrap()) {
+        // if let Ok(db) = rocksdb::DB::open_default(crate::path::get_app_data_path("history").unwrap()) {
+        let mut history_apps: Vec<AppEntry> = vec![];
+        if let Ok(db) = Self::open_history_db() {
             for (_key, value) in db.iterator(rocksdb::IteratorMode::Start) {
-                apps.push(bincode::deserialize(&value).unwrap())
+                history_apps.push(bincode::deserialize(&value).unwrap())
             }
         }
-        
+
+        history_apps = history_apps.into_iter().rev().collect::<Vec<AppEntry>>();
+        apps.extend(history_apps);
+        crate::trace!("init", log::Level::Info, "enumerate_start_apps apps {}, {:?}", apps.len(), apps);
+
         let mut file = std::fs::File::open(path)?;
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
@@ -403,6 +454,7 @@ impl StartAppsProvider {
         return Ok(apps);
     }
 
+    // TODO: remove this. Not using this anymore.
     // If started with a query that doesn't match a startapp
     // then start as a command.
     fn start_command(&mut self, elevated: bool) -> anyhow::Result<()> {
@@ -416,13 +468,77 @@ impl StartAppsProvider {
 
         crate::trace!("start", log::Level::Error, "Starting command args {:?}, AppEntry {:?}", args, self.get_query_app());
 
-        let db = rocksdb::DB::open_default(crate::path::get_app_data_path("history.db").unwrap()).unwrap();
+        let db = rocksdb::DB::open_default(crate::path::get_app_data_path("history").unwrap()).unwrap();
         let _ = db.put(self.get_query(), bincode::serialize(self.get_query_app()).unwrap());
     
         if elevated {
             return self.get_query_app().start();
         } else {
             return self.get_query_app().start_medium();
+        }
+    }
+
+    fn merge_history(new_key: &[u8],
+                     old_value: Option<&[u8]>,
+                     operands: &rocksdb::MergeOperands)
+                     -> Option<Vec<u8>> {
+        // let ret = old_value
+        // .map(|ov| ov.to_vec())
+        // .unwrap_or_else(|| vec![]);
+        
+        // if ret.len() == 0 {
+        //     return None;
+        // }
+
+        if let None = old_value {
+            let mut result: Vec<u8> = Vec::with_capacity(operands.len());
+            for op in operands {
+                result.extend_from_slice(op);
+                // for e in op {
+                //     result.push(*e)
+                // }
+            }
+            crate::trace!("db", log::Level::Info, "Merge first value on {:?}", std::str::from_utf8(new_key).unwrap());
+            return Some(result);
+        }
+
+        crate::trace!("db", log::Level::Info, "Merge value on {:?}", std::str::from_utf8(new_key).unwrap());
+        let mut deserialized: AppEntry = bincode::deserialize(old_value.unwrap()).ok()?;
+        deserialized.use_count += 1;
+        deserialized.last_use_time = chrono::Utc::now();
+        return bincode::serialize(&deserialized).ok();
+    }
+
+    fn parse_query_app(app: &mut AppEntry) {
+        match app.exe_info {
+            AppExecutableInfo::Exe { .. } => {
+                let args: Vec<String> = app.name.split(" ").map(String::from).collect();
+                if args.len() < 1 {
+                    return;
+                }
+
+                app.path = args[0].clone();
+                app.params = if args.len() > 1 { args[1..].join(" ") } else { "".to_string() };        
+            },
+            AppExecutableInfo::Url {} => {
+                app.path = app.name.clone();
+            },
+            AppExecutableInfo::DirEntry { .. } => {
+                app.path = app.name.clone();
+            },
+            _ => {}
+        }
+
+        if let Ok(db) = Self::open_history_db() {
+            match db.merge(&app.name, bincode::serialize(&*app).unwrap()) {
+                Err(e) => {
+                    crate::trace!("db", log::Level::Error, "Merge history failed: {:?}", e);
+                },
+                _ => {
+                    crate::trace!("db", log::Level::Info, "Merge history succeeded");
+                },
+            }
+            // let _ = db.flush();
         }
     }
 
@@ -440,20 +556,28 @@ impl StartAppsProvider {
 
     // Keep this in sync with query_for_items. 
     // Alternatively could probably transmute from & to &mut.
+    // https://www.reddit.com/r/rust/comments/afgp9c/is_it_idiomatic_to_write_almost_identical/
+    // That means I need a mut version of should_show_query_app?
     fn query_for_items_mut(&mut self) -> Vec<&mut dyn ListItem> {
         // self.apps.iter().filter(|&p| {
         //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
         // }).collect()
         let query = self.get_query().to_string();
-        let query_words = query.split(" ").collect::<Vec<_>>().len();
+
+        if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
+
+        }
+
+        let const_ref =  unsafe { std::mem::transmute::<_, &StartAppsProvider>(self as *mut StartAppsProvider) };
+
         let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
-            .skip(if query_words < 2 { 1 } else { 0 })
+            .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
             .filter(|app| {
             if app.name.to_lowercase().contains(&query) {
                 return true;
             }
 
-            if let AppExecutableInfo::Link{ ext: _, target_path } = &app.exe_info {
+            if let AppExecutableInfo::Link { target_path, .. } = &app.exe_info {
                 if target_path.to_lowercase().contains(&query) {
                     return true;
                 }
@@ -462,7 +586,7 @@ impl StartAppsProvider {
             return false;
         }).collect();
 
-        if (result.len() > 1 && result[1].exact_match(&query)) || query.len() == 0 {
+        if result.len() > 1 && result[1].exact_match(&query)  {
             result.remove(0);
         }
 
@@ -470,6 +594,19 @@ impl StartAppsProvider {
             app as &mut dyn ListItem
         }).collect::<Vec<&mut dyn ListItem>>();
         return result;
+    }
+
+    fn should_show_query_app(&self) -> bool {
+        let query_words = self.get_query().split(" ").collect::<Vec<_>>().len();
+        if query_words > 1 {
+            return true;
+        }
+
+        if let AppExecutableInfo::Url{} = self.get_query_app().exe_info {
+            return true;
+        }
+
+        return false;
     }
 }
 
@@ -480,20 +617,24 @@ impl ListContentProvider for StartAppsProvider {
     // Note that the first app in self.apps is the query AppEntry.
     // Only show query AppeEntry when query_words >= 2 i.e. when user wants to pass cmdline parameters.
     // If the query cmdline doesn't include parameters then any app the user wants to run should be in search result.
+    // Keep this in sync with query_for_items_mut. 
     fn query_for_items(&self) -> Vec<&dyn ListItem> {
         // self.apps.iter().filter(|&p| {
         //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
         // }).collect()
+        
+        if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
 
-        let query_words = self.get_query().split(" ").collect::<Vec<_>>().len();
+        }
+
         let mut result: Vec<&AppEntry> = self.apps.iter()
-            .skip(if query_words < 2 { 1 } else { 0 })
+            .skip(if self.should_show_query_app() { 0 } else { 1 })
             .filter(|&app| {
             if app.name.to_lowercase().contains(self.get_query()) {
                 return true;
             }
 
-            if let AppExecutableInfo::Link{ ext: _, target_path } = &app.exe_info {
+            if let AppExecutableInfo::Link{ target_path, .. } = &app.exe_info {
                 if target_path.to_lowercase().contains(self.get_query()) {
                     return true;
                 }
@@ -502,7 +643,7 @@ impl ListContentProvider for StartAppsProvider {
             return false;
         }).collect();
         
-        if (result.len() > 1 && result[1].exact_match(self.get_query())) || self.get_query().len() == 0 {
+        if result.len() > 1 && result[1].exact_match(self.get_query())  {
             result.remove(0);
         }
 
@@ -514,27 +655,24 @@ impl ListContentProvider for StartAppsProvider {
     fn query_for_names(&self) -> Vec<String> {
         self.query_for_items().iter().map(|&app| {
             app.as_any().downcast_ref::<AppEntry>().unwrap()
-        }).map(|app| {
-            match &app.exe_info {
-                AppExecutableInfo::Exe { ext: _ } => {
-                    let name = app.name.clone();
-                    return name;
-                },
-                AppExecutableInfo::Link { ext: _, target_path } => {
-                    return app.name.clone() + " (" + target_path + ")";
-                },
-                AppExecutableInfo::Appx { identity_id: _, publisher_id: _, application_id: _ } => {
-                    return app.name.clone();
-                }
-            }
-        }).collect::<Vec<String>>()
+        }).map(String::from).collect::<Vec<String>>()
     }
 
     fn set_query(&mut self, query: String) {
         self.apps[0].name = query;
 
-        if std::path::Path::new(&self.apps[0].name).exists() {
-
+        let maybe_dir_entry = std::path::Path::new(&self.apps[0].name);
+        if maybe_dir_entry.exists() {
+            self.apps[0].exe_info = AppExecutableInfo::DirEntry { path: maybe_dir_entry.to_owned(), query: "".to_owned() };
+        } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
+            self.apps[0].exe_info = AppExecutableInfo::DirEntry {
+                path: maybe_dir_entry.parent().unwrap().to_owned(),
+                query: maybe_dir_entry.file_name().unwrap().to_str().unwrap().to_owned(),
+            };
+        } else if self.apps[0].name.starts_with("http:") || self.apps[0].name.starts_with("https:") {
+            self.apps[0].exe_info = AppExecutableInfo::Url {};
+        } else {
+            self.apps[0].exe_info = AppExecutableInfo::Exe {};
         }
     }
 
@@ -544,17 +682,8 @@ impl ListContentProvider for StartAppsProvider {
         let app = apps[filtered_index].as_mut_any().downcast_mut::<AppEntry>().unwrap();
 
         if app as *const _ == query_app {
-            let args: Vec<String> = app.name.split(" ").map(String::from).collect();
-            if args.len() < 1 {
-                return;
-            }
-    
-            app.path = args[0].clone();
-            app.params = if args.len() > 1 { args[1..].join(" ") } else { "".to_string() };
-    
-            let db = rocksdb::DB::open_default(crate::path::get_app_data_path("history.db").unwrap()).unwrap();
-            let _ = db.put(&app.name, bincode::serialize(&*app).unwrap());
-        }    
+            StartAppsProvider::parse_query_app(app);
+        }
 
         crate::trace!("start", log::Level::Info, "Start app elevated {:?}: {:?}", elevated, app);
 
@@ -569,6 +698,26 @@ impl ListContentProvider for StartAppsProvider {
         }
     }
 
-    fn remove(&mut self, _filtered_index: usize) {
+    fn remove(&mut self, filtered_index: usize) {
+        let app = {
+            let mut apps = self.query_for_items_mut();
+            if filtered_index >= apps.len() {
+                return;
+            }
+
+            apps[filtered_index].as_mut_any().downcast_mut::<AppEntry>().unwrap() as *const AppEntry
+        };
+
+        if let Ok(db) = Self::open_history_db() {
+            let _ = db.delete(&(unsafe { app.as_ref() }.unwrap()).name);
+            let _ = db.flush();
+        }
+        
+        for i in 0 .. self.apps.len() {
+            if &self.apps[i] as *const _ == app as *const _ {
+                self.apps.remove(i);
+                break;
+            }
+        }
     }
 }

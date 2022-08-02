@@ -127,9 +127,6 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
                 apps.push(AppEntry {
                     name: de.path().file_name().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
                     path: de.path().to_str().unwrap().into(),
-                    exe_info: AppExecutableInfo::Exe {
-                        ext: extension,
-                    },
                     ..Default::default()
                 });
             },
