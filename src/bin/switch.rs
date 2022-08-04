@@ -29,6 +29,165 @@ use switch::{
 use switch::log::*;
 
 const INPUT_PROMPT: &str = "> ";
+const WORD_BOUNDARIES: &str = " ;:\\/-=";
+
+struct InputLine {
+    buffer: Vec<char>,
+    pos: isize, // maintain 0 <= self.pos <= self.len()
+}
+
+impl Default for InputLine {
+    fn default() -> Self {
+        return InputLine { buffer: vec![], pos: 0 };
+    }
+}
+
+impl From<&InputLine> for String {
+    fn from(il: &InputLine) -> Self {
+        return il.buffer.iter().cloned().collect::<String>();
+    }
+}
+
+impl InputLine {
+    fn clear(&mut self) {
+        self.buffer.clear();
+        self.pos = 0;
+    }
+
+    fn push(&mut self, ch: char) {
+        self.buffer.push(ch);
+    }
+
+    fn insert(&mut self, ch: char) {
+        self._insert_at(self.pos as usize, ch);
+        self.pos += 1;
+    }
+
+    fn backward_remove_cursor(&mut self) {
+        // precondition: 0 <= self.pos <= self.len()
+        if self.pos > 0 {
+            self.pos -= 1;
+            self.buffer.remove(self.pos as usize);
+        }
+    }
+
+    fn forward_remove_cursor(&mut self) {
+        // precondition: 0 <= self.pos <= self.len()
+        if self.pos < self.len() as isize {
+            self.buffer.remove(self.pos as usize);
+        }
+    }
+
+    fn backward_find_word(&self) -> usize {
+        let mut past_boundary = 0;
+        
+        for i in (0 .. self.pos).rev() {
+            if !WORD_BOUNDARIES.contains(self.buffer[i as usize]) {
+                past_boundary = i;
+                break;
+            }
+        }
+
+        for i in (0 .. past_boundary).rev() {
+            if WORD_BOUNDARIES.contains(self.buffer[i as usize]) {
+                return (i + 1) as usize;
+            }
+        }
+
+        return 0usize;
+    }
+
+    fn backward_kill_word(&mut self) {
+        let i = self.backward_find_word();
+        self.buffer.splice(i .. self.cursor_pos(), "".chars());
+        self.pos = i as isize;
+    }
+
+    fn forward_find_word(&self) -> usize {
+        let mut past_boundary = self.len() as isize;
+        
+        for i in self.pos + 1 .. self.len() as isize {
+            if !WORD_BOUNDARIES.contains(self.buffer[i as usize]) {
+                past_boundary = i;
+                break;
+            }
+        }
+
+        for i in past_boundary .. self.len() as isize {
+            if WORD_BOUNDARIES.contains(self.buffer[i as usize]) {
+                return i as usize;
+            }
+        }
+
+        return self.len();
+    }
+
+    fn forward_kill_word(&mut self) {
+        let i = self.forward_find_word();
+        self.buffer.splice(self.cursor_pos() .. i, "".chars());
+    }
+
+    fn backward_kill_line(&mut self) {
+        self.buffer.splice(0 .. self.cursor_pos(), "".chars());
+        self.pos = 0;
+    }
+
+    fn forward_kill_line(&mut self) {
+        self.buffer.splice(self.cursor_pos() .. self.len(), "".chars());
+    }
+
+    fn backward_word(&mut self) {
+        self.pos = self.backward_find_word() as isize;
+    }
+
+    fn forward_word(&mut self) {
+        self.pos = self.forward_find_word() as isize;
+    }
+
+    fn cursor_end(&mut self) {
+        self.pos = self.buffer.len() as isize;
+    }
+
+    fn cursor_begin(&mut self) {
+        self.pos = 0;
+    }
+
+    fn cursor_move(&mut self, delta: isize) {
+        let result = self.pos + delta;
+        if result >= 0 && result <= self.buffer.len() as isize {
+            self.pos = result;
+        }
+    }
+
+    fn cursor_pos(&self) -> usize {
+        return self.pos as usize;
+    }
+
+    fn len(&self) -> usize {
+        return self.buffer.len();
+    }
+
+    fn _insert_at(&mut self, index: usize, element: char) {
+        self.buffer.insert(index, element);
+    }
+
+    fn reset_buffer<IntoString: Into<String>>(&mut self, s: IntoString) {
+        let s = s.into() as String;
+        self.buffer = s.chars().collect();
+        self.pos = self.buffer.len() as isize;
+    }
+
+    fn insert_string<IntoString: Into<String>>(&mut self, s: IntoString) {
+        let s = s.into() as String;
+        if self.cursor_pos() == self.len() {
+            self.buffer.extend(s.chars());
+
+        } else {
+            self.buffer.splice(self.cursor_pos() .. self.cursor_pos(), s.chars());
+        }
+        self.pos += s.len() as isize;
+    }
+}
 
 /// This struct holds the current state of the app. In particular, it has the `items` field which is a wrapper
 /// around `ListState`. Keeping track of the items state let us render the associated widget with its state
@@ -37,7 +196,7 @@ const INPUT_PROMPT: &str = "> ";
 /// Check the event handling at the bottom to see how to change the state on incoming events.
 /// Check the drawing logic for items on how to specify the highlighting style for selected items.
 struct SearchableListApp {
-    input_buffer: Vec<char>,
+    input_line: InputLine,
     list_state: ListState,
     providers: Vec<Box<dyn ListContentProvider>>,
     selected_provider: usize,
@@ -48,8 +207,8 @@ struct SearchableListApp {
 impl<'a> SearchableListApp {
     fn new(providers: Vec<Box<dyn ListContentProvider>>, screen_width: u16, screen_height: u16) -> SearchableListApp {
         SearchableListApp {
+            input_line: InputLine::default(),
             list_state: ListState::default(),
-            input_buffer: Vec::new(),
             providers,
             selected_provider: 0,
             screen_width,
@@ -69,8 +228,8 @@ impl<'a> SearchableListApp {
 
     fn next_provider(&mut self) {
         self.list_state = ListState::default();
-        self.input_buffer.clear();
-        self.set_query("".into());
+        self.input_line.clear();
+        self.set_query((&self.input_line).into());
         self.selected_provider = if self.selected_provider >= self.providers.len() - 1 {
             0
         } else {
@@ -222,7 +381,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let screen_height = terminal.get_frame().size().height;
 
     // create app and run it
-    let tick_rate = Duration::from_millis(250);
+    let tick_rate = Duration::from_millis(1000);
     let mut app = SearchableListApp::new(vec![
         WindowProvider::new(),
         StartAppsProvider::new(),
@@ -281,25 +440,55 @@ fn run_app<B: Backend>(
                     KeyCode::Char(c) => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
                             return Ok(())
+                        } else if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'u' {
+                            app.input_line.backward_kill_line();
+                        } else if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'k' {
+                            app.input_line.forward_kill_line();
+                        } else {
+                            app.input_line.insert(c);
                         }
-                        app.input_buffer.push(c);
-                        app.set_query(app.input_buffer.iter().cloned().collect::<String>());
+
+                        app.set_query((&app.input_line).into());
                         app.list_state.select(Some(0));
+                        // Hide cursor before redrawing input line to prevent flickering cursor.
+                        let _ = terminal.hide_cursor();
                     },
-                    KeyCode::Left => app.list_unselect(),
+                    KeyCode::Home => {
+                        app.input_line.cursor_begin();
+                    },
+                    KeyCode::End => {
+                        app.input_line.cursor_end();
+                    },
+                    KeyCode::Left => {
+                        // app.list_unselect()
+                        if key.modifiers.contains(KeyModifiers::CONTROL) {
+                            app.input_line.backward_word();
+                        } else {
+                            app.input_line.cursor_move(-1);
+                        }
+                    },
+                    KeyCode::Right => {
+                        // app.list_unselect()
+                        if key.modifiers.contains(KeyModifiers::CONTROL) {
+                            app.input_line.forward_word();
+                        } else {
+                            app.input_line.cursor_move(1);
+                        }
+                    },
                     KeyCode::Down => app.list_next(),
                     KeyCode::Up => app.list_previous(),
                     KeyCode::Backspace => {
-                        if app.input_buffer.len() == 0 {
+                        if app.input_line.len() == 0 {
                             continue;
                         }
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
-                            let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
-                            app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
+                            // let kill_back_word_pos = app.input_buffer.iter().rev().position(|&x| x == ' ').unwrap_or(app.input_buffer.len() - 1);
+                            // app.input_buffer.truncate(app.input_buffer.len() - kill_back_word_pos - 1);
+                            app.input_line.backward_kill_word();
                         } else {
-                            app.input_buffer.pop();
+                            app.input_line.backward_remove_cursor();
                         }
-                        app.set_query(app.input_buffer.iter().cloned().collect::<String>());
+                        app.set_query((&app.input_line).into());
                         app.list_state.select(Some(0));
                     },
                     KeyCode::Esc => {
@@ -325,7 +514,7 @@ fn run_app<B: Backend>(
                             switch::trace!("start", log::Level::Info, "Start app: KeyModifiers::CONTROL");
                             app.current_provider_mut().start(selected, true);
                         } else {
-                            switch::trace!("start", log::Level::Info, "Start app: KeyModifiers::CONTROL no");
+                            switch::trace!("start", log::Level::Info, "Start app`");
                             app.current_provider_mut().start(selected, false);
                         }
 
@@ -334,9 +523,20 @@ fn run_app<B: Backend>(
                     KeyCode::Delete => {
                         let selected = app.list_state.selected().unwrap_or(std::usize::MAX);
                         app.current_provider_mut().remove(selected);
-                    }
-                    KeyCode::Tab => {
+                    },
+                    KeyCode::F(1) => {
                         app.next_provider();
+                    },
+                    KeyCode::Tab => {
+                        if let Some(selected) = app.list_state.selected() {
+                            if selected >= app.current_provider_mut().query_for_items().len() {
+                                continue;
+                            }
+                            let s = (&app.current_provider_mut().query_for_items()[selected]).as_matchable_string();
+                            app.input_line.reset_buffer(&s);
+                            app.current_provider_mut().set_query(s);
+                            app.list_state.select(Some(0));
+                        }
                     },
                     KeyCode::PageDown => {
                         app.list_page_next();
@@ -349,7 +549,10 @@ fn run_app<B: Backend>(
                 Event::Mouse(key) => match key.kind {
                     crossterm::event::MouseEventKind::Down(button) => match button {
                         crossterm::event::MouseButton::Right => {
-                            
+                            app.input_line.insert_string(switch::clipboard::get_text());
+                            let line = String::from(&app.input_line);
+                            app.current_provider_mut().set_query(line);
+                            app.list_state.select(Some(0));
                         },
                         _ => {},
                     },
@@ -365,8 +568,9 @@ fn run_app<B: Backend>(
                 },
             }
         }
+
         if last_tick.elapsed() >= tick_rate {
-            app.on_tick();
+            // app.on_tick();
             last_tick = Instant::now();
         }
     }
@@ -390,19 +594,17 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
         })
         .collect();
 
-    let rendered_line_buffer = INPUT_PROMPT.to_string() + &app.input_buffer.iter().cloned().collect::<String>();
-    let rendered_line_buffer = if rendered_line_buffer.len() > app.screen_width as usize {
-        rendered_line_buffer[0..app.screen_width as usize].to_string()
+    let rendered_input_line = INPUT_PROMPT.to_string() + &(String::from(&app.input_line));
+    let rendered_input_line = if rendered_input_line.len() > app.screen_width as usize {
+        rendered_input_line[0..app.screen_width as usize].to_string()
     } else {
-        rendered_line_buffer
+        rendered_input_line
     };
 
-    let cursor_col = INPUT_PROMPT.len() + app.input_buffer.len();
-    f.set_cursor(cursor_col as u16, 0);
-
+    let cursor_col = INPUT_PROMPT.len() + app.input_line.cursor_pos();
     // Create a List from all list items and highlight the currently selected one
     let items = List::new(items)
-        .block(Block::default().borders(Borders::NONE).title(Spans::from(rendered_line_buffer)))
+        .block(Block::default().borders(Borders::NONE).title(Spans::from(rendered_input_line)))
         .highlight_style(
             Style::default()
                 .bg(Color::LightGreen)
@@ -412,4 +614,6 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut SearchableListApp) {
     // We can now render the item list
     //f.render_stateful_widget(items, chunks[0], &mut app.list.state);
     f.render_stateful_widget(items, f.size(), &mut app.list_state);
+    // Show cursor after drawing finishes to prevent flickering cursor.
+    f.set_cursor(cursor_col as u16, 0);
 }

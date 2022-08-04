@@ -59,6 +59,16 @@ impl ListItem for WindowInfo {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         return self;
     }
+
+    fn as_string(&self) -> String {
+        let w = self.as_any().downcast_ref::<WindowInfo>().unwrap();
+        return format!("{}", w);
+    }
+
+    fn as_matchable_string(&self) -> String {
+        let w = self.as_any().downcast_ref::<WindowInfo>().unwrap();
+        return w.window_text.clone();
+    }
 }
 
 impl Drop for WindowInfo {
@@ -213,10 +223,10 @@ impl ListContentProvider for WindowProvider {
                 return false;
             }
 
-            if w.image_name.to_lowercase().contains(&self.query) {
+            if w.image_name.to_lowercase().contains(&self.query.to_lowercase()) {
                 return true;
             }
-            if w.window_text.to_lowercase().contains(&self.query) {
+            if w.window_text.to_lowercase().contains(&self.query.to_lowercase()) {
                 return true;
             }
             return false;

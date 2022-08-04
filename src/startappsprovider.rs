@@ -103,6 +103,16 @@ impl ListItem for AppEntry {
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any {
         return self;
     }
+
+    fn as_string(&self) -> String {
+        let app = self.as_any().downcast_ref::<AppEntry>().unwrap();
+        return String::from(app);
+    }
+
+    fn as_matchable_string(&self) -> String {
+        let app = self.as_any().downcast_ref::<AppEntry>().unwrap();
+        return app.name.clone();
+    }
 }
 
 impl AppEntry {
@@ -590,14 +600,16 @@ impl StartAppsProvider {
 
     fn query_directory(&mut self) -> Vec<&mut dyn ListItem> {
         if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
-            *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
-                let name = p.to_str().unwrap().to_owned();
-                return AppEntry {
-                    name: name.clone(),
-                    path: name,
-                    ..Default::default()
-                }
-            }).collect::<Vec<AppEntry>>();
+            if listing.len() == 0 {
+                *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
+                    let name = p.to_str().unwrap().to_owned();
+                    return AppEntry {
+                        name: name.clone(),
+                        path: name,
+                        ..Default::default()
+                    }
+                }).collect::<Vec<AppEntry>>();    
+            }
             return listing.iter_mut().map(|app| {
                 app as &mut dyn ListItem
             }).collect::<Vec<&mut dyn ListItem>>();
@@ -666,7 +678,7 @@ impl ListContentProvider for StartAppsProvider {
         let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
             .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
             .filter(|app| {
-            if app.name.to_lowercase().contains(&query) {
+            if app.name.to_lowercase().contains(&query.to_lowercase()) {
                 return true;
             }
 
@@ -708,18 +720,21 @@ impl ListContentProvider for StartAppsProvider {
         self.apps[0].name = query;
 
         let maybe_dir_entry = std::path::Path::new(&self.apps[0].name);
-        if maybe_dir_entry.exists() {
-            self.apps[0].exe_info = AppExecutableInfo::DirEntry { 
-                path: maybe_dir_entry.to_owned(),
-                query: "".to_owned(),
-                listing: vec![],
-            };
-        } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
-            self.apps[0].exe_info = AppExecutableInfo::DirEntry {
-                path: maybe_dir_entry.parent().unwrap().to_owned(),
-                query: maybe_dir_entry.file_name().unwrap().to_str().unwrap().to_owned(),
-                listing: vec![],
-            };
+
+        if !self.apps[0].name.ends_with(":") {
+            if self.apps[0].name.ends_with("\\") && maybe_dir_entry.exists() {
+                self.apps[0].exe_info = AppExecutableInfo::DirEntry { 
+                    path: maybe_dir_entry.to_owned(),
+                    query: "".to_owned(),
+                    listing: vec![],
+                };
+            } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
+                self.apps[0].exe_info = AppExecutableInfo::DirEntry {
+                    path: maybe_dir_entry.parent().unwrap().to_owned(),
+                    query: maybe_dir_entry.file_name().unwrap().to_str().unwrap_or("").to_owned(),
+                    listing: vec![],
+                };
+            }
         } else if self.apps[0].name.starts_with("http:") || self.apps[0].name.starts_with("https:") {
             self.apps[0].exe_info = AppExecutableInfo::Url {};
         } else {

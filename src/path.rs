@@ -1,3 +1,4 @@
+// use crate::log::*;
 
 pub fn get_installed_exe_path(file: &str) -> String {
     let mut install_path  = std::path::PathBuf::from(std::env::current_exe().unwrap().parent().unwrap());

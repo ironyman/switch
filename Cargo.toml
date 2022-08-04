@@ -63,6 +63,7 @@ features = [
     "Management_Deployment",
     "Win32_Security_AppLocker",
     "Win32_NetworkManagement_NetManagement",
+    "Win32_System_DataExchange",
 ]
 
 [features]

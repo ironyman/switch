@@ -17,3 +17,4 @@ pub mod log;
 pub mod com;
 pub mod create_process;
 pub mod path;
+pub mod clipboard;

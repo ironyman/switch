@@ -10,7 +10,9 @@ pub trait ListContentProvider {
     fn remove(&mut self, filtered_index: usize);
 }
 
-pub trait ListItem /*where Self: Into<String>*/  {
+pub trait ListItem /*where Self: Into<String>*/ /*where Self: std::fmt::Display*/  {
     fn as_any(&self) -> &dyn std::any::Any;
     fn as_mut_any(&mut self) -> &mut dyn std::any::Any;
+    fn as_string(&self) -> String;
+    fn as_matchable_string(&self) -> String;
 }
