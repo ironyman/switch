@@ -599,16 +599,38 @@ impl StartAppsProvider {
     }
 
     fn query_directory(&mut self) -> Vec<&mut dyn ListItem> {
+        let query_app = if self.should_show_query_app() {
+            Some(AppEntry {
+                exe_info: AppExecutableInfo::Exe{},
+                ..self.get_query_app().clone()
+            })
+        } else {
+            None
+        };
+
+        crate::trace!("query", log::Level::Info, "query_directory query_app: {:?}", &query_app);
+
         if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
             if listing.len() == 0 {
                 *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
-                    let name = p.to_str().unwrap().to_owned();
+                    let mut name = p.to_str().unwrap().to_owned();
+                    if p.is_dir() && !name.ends_with("\\") {
+                        name += "\\";
+                    }
                     return AppEntry {
                         name: name.clone(),
                         path: name,
                         ..Default::default()
-                    }
-                }).collect::<Vec<AppEntry>>();    
+                    };
+                }).collect::<Vec<AppEntry>>();
+                if let Some(app) = query_app {
+                    crate::trace!("query", log::Level::Info, "query_directory prepending: {:?}", &app);
+                    listing.insert(0, app);
+                }
+            } else {
+                if let Some(app) = query_app {
+                    listing[0] = app;
+                }
             }
             return listing.iter_mut().map(|app| {
                 app as &mut dyn ListItem
@@ -672,8 +694,11 @@ impl ListContentProvider for StartAppsProvider {
         let const_ref = unsafe { std::mem::transmute::<_, &StartAppsProvider>(self as *mut StartAppsProvider) };
         
         if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
+            crate::trace!("query", log::Level::Info, "query_for_items: query_directory, {:?}", self.get_query_app());
             return self.query_directory();
         }
+
+        crate::trace!("query", log::Level::Info, "query_for_items: should_show_query_app {}", const_ref.should_show_query_app());
 
         let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
             .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
@@ -721,14 +746,16 @@ impl ListContentProvider for StartAppsProvider {
 
         let maybe_dir_entry = std::path::Path::new(&self.apps[0].name);
 
-        if !self.apps[0].name.ends_with(":") {
+        if self.apps[0].name.len() > 0 && !self.apps[0].name.ends_with(":") {
             if self.apps[0].name.ends_with("\\") && maybe_dir_entry.exists() {
-                self.apps[0].exe_info = AppExecutableInfo::DirEntry { 
+                crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::DirEntry: {}", &self.apps[0].name);
+                self.apps[0].exe_info = AppExecutableInfo::DirEntry {
                     path: maybe_dir_entry.to_owned(),
                     query: "".to_owned(),
                     listing: vec![],
                 };
             } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
+                crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::DirEntry: {}", &self.apps[0].name);
                 self.apps[0].exe_info = AppExecutableInfo::DirEntry {
                     path: maybe_dir_entry.parent().unwrap().to_owned(),
                     query: maybe_dir_entry.file_name().unwrap().to_str().unwrap_or("").to_owned(),
@@ -736,8 +763,10 @@ impl ListContentProvider for StartAppsProvider {
                 };
             }
         } else if self.apps[0].name.starts_with("http:") || self.apps[0].name.starts_with("https:") {
+            crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::Url: {}", &self.apps[0].name);
             self.apps[0].exe_info = AppExecutableInfo::Url {};
         } else {
+            crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::Exe: {}", &self.apps[0].name);
             self.apps[0].exe_info = AppExecutableInfo::Exe {};
         }
     }
@@ -747,7 +776,11 @@ impl ListContentProvider for StartAppsProvider {
         let mut apps = self.query_for_items();
         let app = apps[filtered_index].as_mut_any().downcast_mut::<AppEntry>().unwrap();
 
-        if app as *const _ == query_app {
+        // Well if app.path.len() is 0 then rest of struct has to be filled in..
+        // This is mainly for the case in query_directory where it realizes it needs
+        // to show the query app so it copies the real from get_query_app and puts it
+        // in first of DirEntry::listing.
+        if app as *const _ == query_app || app.path.len() == 0 {
             StartAppsProvider::parse_query_app(app);
         }
 
