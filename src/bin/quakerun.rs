@@ -694,7 +694,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         // Same as above but we want to run unelevated because the path for btm is medium integrity.
                         if current_running_process.is_invalid() {
                             let cmdline: String;
-
+                            // cargo install bottom
                             let btm_path = "%USERPROFILE%\\.cargo\\bin\\btm.exe -b\0";
                             let mut expanded: [u8; 512] = [0; 512];
                             // PSTR(expanded.as_mut_ptr())
