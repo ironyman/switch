@@ -20,9 +20,11 @@ Open the switch UI with ``Alt+` ``
 # Build
 Install rust
 ```
-iwr https://win.rustup.rs/x86_64 -OutFile rustup‑init.exe
-rustup‑init.exe -y
+iwr https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+.\rustup-init.exe -y
 ```
+Also install VS community edition with desktop development with C++ option. This has to be done with GUI.
+
 Install llvm, required for rocksdb
 ```
 cinst -y llvm
