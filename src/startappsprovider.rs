@@ -613,10 +613,11 @@ impl StartAppsProvider {
         if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
             if listing.len() == 0 {
                 *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
-                    let mut name = p.to_str().unwrap().to_owned();
-                    if p.is_dir() && !name.ends_with("\\") {
-                        name += "\\";
-                    }
+                    let name = p.to_str().unwrap().to_owned();
+                    // Checking if directory is really slow over file shares.
+                    // if p.is_dir() && !name.ends_with("\\") {
+                    //     name += "\\";
+                    // }
                     return AppEntry {
                         name: name.clone(),
                         path: name,
