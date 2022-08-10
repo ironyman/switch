@@ -14,7 +14,7 @@ use windows::Win32::UI::Shell::*;
 // Used implicitly.
 // use windows::Management::Deployment::*;
 use switch::log::*;
-use switch::startappsprovider::{AppEntry, AppExecutableInfo};
+use switch::startappsprovider::{AppEntry, AppEntryKind};
 
 // const DEFAULT_THREADS: u32 = 256;
 
@@ -126,7 +126,10 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
             "exe" | "msc" | "cpl" | "appref-ms" => {
                 apps.push(AppEntry {
                     name: de.path().file_name().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
-                    path: de.path().to_str().unwrap().into(),
+                    kind: AppEntryKind::Exe {
+                        path: de.path().to_str().unwrap().into(),
+                        params: String::new(),
+                    },
                     ..Default::default()
                 });
             },
@@ -188,10 +191,10 @@ fn index_exes() -> anyhow::Result<Vec<AppEntry>> {
                     
                     apps.push(AppEntry {
                         name: de.path().file_name().unwrap_or(std::ffi::OsStr::new("None")).to_str().unwrap().into(),
-                        path: de.path().to_str().unwrap().into(),
-                        exe_info: AppExecutableInfo::Link {
-                            ext: extension,
-                            target_path:  link.Path().unwrap().to_string()
+                        kind: AppEntryKind::Link {
+                            path: de.path().to_str().unwrap().into(),
+                            params: String::new(),
+                            target_path: link.Path().unwrap().to_string()
                         },
                         ..Default::default()
                     });
@@ -322,11 +325,11 @@ unsafe fn index_appx() -> anyhow::Result<Vec<AppEntry>> {
 
             apps.push(AppEntry {
                 name: display_name.to_string_lossy() + " (" + &app_id + ")",
-                path: path.to_string_lossy(),
-                exe_info: AppExecutableInfo::Appx {
+                kind: AppEntryKind::Appx {
                     identity_id: identity_id.to_string_lossy(),
                     publisher_id: publisher_id.to_string_lossy(),
                     application_id: app_id,
+                    path: path.to_string_lossy(),
                 },
                 ..Default::default()
             });

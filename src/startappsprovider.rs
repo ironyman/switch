@@ -18,51 +18,65 @@ use windows::Win32::System::Com::*;
 use windows::Win32::UI::Shell::*;
 use crate::log::*;
 
+enum StartAppsProviderMode {
+    StartApps,
+    DirectoryListing,
+    Url,
+}
+
 pub struct StartAppsProvider {
+    // User input query string.
+    query: String,
+    // Apps we read from history db, indexed json files.
     apps: Vec<AppEntry>,
+    // If query is a directory path, then this holds the list of
+    // directory entry listings corresponding to the queried path.
+    directory_listing: Option<Vec<AppEntry>>,
+    directory_listing_path: Option<std::path::PathBuf>,
+    mode: StartAppsProviderMode,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum AppExecutableInfo {
+pub enum AppEntryKind {
     // Includes msc, cpl, exes, things you can pass path to ShellExecute to start
     // name in AppEntry is file name and does not include extension nor '.'.
     // Essence is that these are indexed executable files.
     Exe {
+        path: String,
+        params: String,
     },
     // References to other files, also can be started by passing path to ShellExecute
     // but we want to save the target_path.
+    // ShellExecute the link at path, target_path is only for displaying.
     Link {
-        ext: String,
+        path: String,
+        params: String,
         target_path: String,
     },
     // UWP/UAP apps, list with get-appxpackage, have to pass shell:AppsFolder\stuff to ShellExecute
+    // Path is where the app lives, not used for executing, maybe for displaying.
     Appx {
         identity_id: String,
         publisher_id: String,
         application_id: String,
+        path: String,
     },
-    DirEntry {
-        // A directory entry query has a valid part and a query part i.e.
-        // c:\windows\system32\cmd
-        // cmd is the query part and the stuff before is the valid part.
-        path: std::path::PathBuf,
-        // TODO: Maybe we can reuse the path in the parent?
-        query: String,
-        listing: Vec<AppEntry>,
-    },
-    Url {
+    // Command string should be parsed into path and params for ShellExecute.
+    Command {
+        command: String,
     },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppEntry {
     pub name: String,
-    pub path: String,
-    pub params: String,
+    #[serde(default)]
     pub use_count: u32,
     #[serde(with = "system_time_format")]
+    // #[serde(default)]
+    #[serde(default = "default_time")]
     pub last_use_time: chrono::DateTime<chrono::Utc>,
-    pub exe_info: AppExecutableInfo,
+    pub kind: AppEntryKind,
 }
 
 mod system_time_format {
@@ -95,6 +109,18 @@ mod system_time_format {
     }
 }
 
+// https://serde.rs/attr-default.html
+// impl Default for chrono::DateTime<chrono::Utc> {
+//     fn default() -> Self {
+//         // Timeout(30)
+//     }
+// }
+fn default_time() -> chrono::DateTime<chrono::Utc> {
+    let epoch = std::time::UNIX_EPOCH.duration_since(std::time::UNIX_EPOCH).unwrap();
+    let naive = chrono::NaiveDateTime::from_timestamp(epoch.as_secs() as i64, epoch.subsec_nanos() as u32);
+    return chrono::DateTime::from_utc(naive, chrono::Utc);
+}
+
 impl ListItem for AppEntry {
     fn as_any(&self) -> &dyn std::any::Any {
         return self;
@@ -109,6 +135,7 @@ impl ListItem for AppEntry {
         return String::from(app);
     }
 
+    // Used for tab complete. Should return something that matches this entry.
     fn as_matchable_string(&self) -> String {
         let app = self.as_any().downcast_ref::<AppEntry>().unwrap();
         return app.name.clone();
@@ -118,15 +145,13 @@ impl ListItem for AppEntry {
 impl AppEntry {
     // Switch usually runs as elevated so that it can set foreground.
     fn start(&self) -> anyhow::Result<()> {
-        match &self.exe_info {
-            AppExecutableInfo::Exe { .. } 
-            | AppExecutableInfo::Link { .. }
-            | AppExecutableInfo::Url {}
-            | AppExecutableInfo::DirEntry { .. }
+        match &self.kind {
+            AppEntryKind::Exe { path, params } 
+            | AppEntryKind::Link { path, params, .. }
             => {
                 unsafe {
-                    let path = (self.path.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
-                    let params = (self.params.to_string() + "\0").encode_utf16().collect::<Vec<u16>>();
+                    let path = (path.clone() + "\0").encode_utf16().collect::<Vec<u16>>();
+                    let params = (params.clone() + "\0").encode_utf16().collect::<Vec<u16>>();
                     windows::Win32::UI::Shell::ShellExecuteW(
                         HWND(0),
                         PCWSTR(std::ptr::null()),
@@ -138,7 +163,7 @@ impl AppEntry {
                     return Ok(());
                 }
             },
-            AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
+            AppEntryKind::Appx { identity_id, publisher_id, application_id, .. } => {
                 unsafe {
                     let path = format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id)
                         .encode_utf16().collect::<Vec<u16>>();
@@ -153,7 +178,33 @@ impl AppEntry {
                     );
                     return Ok(());
                 }
-            }
+            },
+            AppEntryKind::Command { command } => {
+                let args: Vec<String> = command.split(" ").map(String::from).collect();
+                if args.len() < 1 {
+                    return Ok(());
+                }
+
+                let (path, params) = if command.starts_with("http://") || command.starts_with("https://") {
+                    (command.clone(), String::new())
+                } else {
+                    (args[0].clone(), if args.len() > 1 { args[1..].join(" ") } else { "".to_string() })
+                };
+
+                unsafe {
+                    let path = (path.clone() + "\0").encode_utf16().collect::<Vec<u16>>();
+                    let params = (params.clone() + "\0").encode_utf16().collect::<Vec<u16>>();
+                    windows::Win32::UI::Shell::ShellExecuteW(
+                        HWND(0),
+                        PCWSTR(std::ptr::null()),
+                        PCWSTR(path.as_ptr()),
+                        PCWSTR(params.as_ptr()),
+                        PCWSTR(std::ptr::null()),
+                        SW_SHOWNORMAL.0 as i32
+                    );
+                }
+                return Ok(());
+            },
         };
     }
 
@@ -219,8 +270,7 @@ impl AppEntry {
         return Ok(());
     }
 
-    // This function has issues where sometimes the created process will not appear in foreground.
-    fn start_medium_explorer(&self) -> anyhow::Result<()> {
+    fn start_medium(&self) -> anyhow::Result<()> {
         unsafe {
             // let mut disp_shell = disp_shell;
             // let disp_shell_owner: Option<IShellDispatch2>;
@@ -271,18 +321,16 @@ impl AppEntry {
                 // disp_shell = Some(disp_shell_owner.as_ref().unwrap());
                 let disp_shell = folder_view.Application().unwrap().cast::<IShellDispatch2>().unwrap();
             // }
-            match &self.exe_info {
-                AppExecutableInfo::Exe { .. } 
-                | AppExecutableInfo::Link { .. }
-                | AppExecutableInfo::Url {}
-                | AppExecutableInfo::DirEntry { .. }
+            match &self.kind {
+                AppEntryKind::Exe { path, params } 
+                | AppEntryKind::Link { path, params, .. }
                 => {
                     let empty = crate::com::Variant::from("".to_owned());
                     let zero = crate::com::Variant::from(SW_SHOWNORMAL.0 as i32);
-                    let params = crate::com::Variant::from(self.params.clone());
+                    let params = crate::com::Variant::from(params.clone());
 
                     if let Err(e) = disp_shell.ShellExecute(
-                        BSTR::from(self.path.clone()),
+                        BSTR::from(path.clone()),
                         &params.0,
                         &empty.0,
                         &empty.0,
@@ -290,9 +338,8 @@ impl AppEntry {
                     ) {
                         crate::trace!("start", log::Level::Error, "Start app medium: ShellExecute {:?}", e);
                     }
-
                 },
-                AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
+                AppEntryKind::Appx { identity_id, publisher_id, application_id, .. } => {
                     let path = format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id);
                     let empty = crate::com::Variant::from("".to_owned());
                     let zero = crate::com::Variant::from(SW_SHOWNORMAL.0 as i32);
@@ -303,34 +350,39 @@ impl AppEntry {
                         &empty.0,
                         &zero.0,
                     );
+                },
+                AppEntryKind::Command { command } => {
+                    let args: Vec<String> = command.split(" ").map(String::from).collect();
+                    if args.len() < 1 {
+                        return Ok(());
+                    }
+    
+                    let (path, params) = if command.starts_with("http://") || command.starts_with("https://") {
+                        (command.clone(), String::new())
+                    } else {
+                        (args[0].clone(), if args.len() > 1 { args[1..].join(" ") } else { "".to_string() })
+                    };
 
-                }
+                    crate::trace!("start", log::Level::Error, "Start app medium: command {:?} {:?}", path, params);
+
+                    let empty = crate::com::Variant::from("".to_owned());
+                    let zero = crate::com::Variant::from(SW_SHOWNORMAL.0 as i32);
+                    let params = crate::com::Variant::from(params.clone());
+
+                    if let Err(e) = disp_shell.ShellExecute(
+                        BSTR::from(path.clone()),
+                        &params.0,
+                        &empty.0,
+                        &empty.0,
+                        &zero.0,
+                    ) {
+                        crate::trace!("start", log::Level::Error, "Start app medium: ShellExecute {:?}", e);
+                    }
+                },
             }
 
             return Ok(());
         }
-    }
-
-    fn start_medium(&self) -> anyhow::Result<()> {
-        return self.start_medium_explorer();
-        // let shell_cmd = match &self.exe_info {
-        //     AppExecutableInfo::Exe { .. } | AppExecutableInfo::Link { .. } => {
-        //         self.path.to_owned()
-        //     },
-        //     AppExecutableInfo::Appx { identity_id, publisher_id, application_id } => {
-        //         format!("shell:AppsFolder\\{}_{}!{}\0", identity_id, publisher_id, application_id)
-        //     }
-        // };
-
-        // unsafe {
-        //     let cmdline = crate::create_process::get_installed_exe_path("noconsole.exe") + " --shellexecute " + &shell_cmd;
-        //     crate::trace!("start", log::Level::Info, "Start app: create_medium_process {:?}", &cmdline);
-        //     let result = crate::create_process::create_medium_process(cmdline);
-        //     if let Err(e) = result {
-        //         crate::trace!("start", log::Level::Error, "Start app: create_medium_process error {:?}", e);
-        //     }
-        //     return Ok(());
-        // }
     }
 
     fn exact_match(&self, query: &str) -> bool {
@@ -346,27 +398,35 @@ impl Default for AppEntry {
     fn default() -> Self {
         return AppEntry { 
             name: "".into(),
-            path: "".into(),
-            params: "".into(),
             use_count: 0,
             last_use_time: chrono::Utc::now(),
-            exe_info: AppExecutableInfo::Exe {}
+            kind: AppEntryKind::Exe {
+                path: "".into(),
+                params: "".into(),
+            }
         };
     }
 }
 
 impl From<&AppEntry> for String {
     fn from(app: &AppEntry) -> String {
-        match &app.exe_info {
-            AppExecutableInfo::Exe { .. } | AppExecutableInfo::Url {} | AppExecutableInfo::DirEntry { .. } => {
-                let name = app.name.clone();
-                return name;
+        match &app.kind {
+            AppEntryKind::Exe { path: _path, ..} => {
+                return app.name.clone();
+                // return app.name.clone() + " (" + _path + ")";
             },
-            AppExecutableInfo::Link { target_path, .. } => {
+            AppEntryKind::Link { target_path, .. } => {
                 return app.name.clone() + " (" + target_path + ")";
             },
-            AppExecutableInfo::Appx { .. } => {
+            AppEntryKind::Appx { .. } => {
                 return app.name.clone();
+            },
+            AppEntryKind::Command { command } => {
+                if app.name.len() > 0 {
+                    return app.name.clone() + " (" + &command + ")";
+                } else {
+                    return command.clone();
+                }
             }
         }
     }
@@ -384,6 +444,10 @@ impl StartAppsProvider {
 
         return Box::new(StartAppsProvider {
             apps: Self::enumerate_start_apps().unwrap(),
+            query: String::new(),
+            mode: StartAppsProviderMode::StartApps,
+            directory_listing: None,
+            directory_listing_path: None,
         });
     }
 
@@ -475,30 +539,6 @@ impl StartAppsProvider {
         return Ok(apps);
     }
 
-    // TODO: remove this. Not using this anymore.
-    // If started with a query that doesn't match a startapp
-    // then start as a command.
-    fn start_command(&mut self, elevated: bool) -> anyhow::Result<()> {
-        let args: Vec<String> = self.get_query().split(" ").map(String::from).collect();
-        if args.len() < 1 {
-            return Err(anyhow::Error::msg("Missing argument"));
-        }
-
-        self.get_query_app_mut().path = args[0].clone();
-        self.get_query_app_mut().params = if args.len() > 1 { args[1..].join(" ") } else { "".to_string() };
-
-        crate::trace!("start", log::Level::Error, "Starting command args {:?}, AppEntry {:?}", args, self.get_query_app());
-
-        let db = rocksdb::DB::open_default(crate::path::get_app_data_path("history").unwrap()).unwrap();
-        let _ = db.put(self.get_query(), bincode::serialize(self.get_query_app()).unwrap());
-    
-        if elevated {
-            return self.get_query_app().start();
-        } else {
-            return self.get_query_app().start_medium();
-        }
-    }
-
     // This is actually called on read from db so you it doesn't make sense to 
     // set last_use_time in this function...
     fn merge_history(_new_key: &[u8],
@@ -559,55 +599,52 @@ impl StartAppsProvider {
         }
     }
 
-    fn parse_query_app(app: &mut AppEntry) {
-        match app.exe_info {
-            AppExecutableInfo::Exe { .. } => {
-                let args: Vec<String> = app.name.split(" ").map(String::from).collect();
-                if args.len() < 1 {
-                    return;
-                }
+    // fn parse_query_app(app: &mut AppEntry) {
+    //     match app.kind {
+    //         AppEntryKind::Exe { .. } => {
+    //             let args: Vec<String> = app.name.split(" ").map(String::from).collect();
+    //             if args.len() < 1 {
+    //                 return;
+    //             }
 
-                app.path = args[0].clone();
-                app.params = if args.len() > 1 { args[1..].join(" ") } else { "".to_string() };        
-            },
-            AppExecutableInfo::Url {} => {
-                app.path = app.name.clone();
-            },
-            AppExecutableInfo::DirEntry { .. } => {
-                app.path = app.name.clone();
-            },
-            _ => {}
-        }
-    }
+    //             app.path = args[0].clone();
+    //             app.params = if args.len() > 1 { args[1..].join(" ") } else { "".to_string() };        
+    //         },
+    //         AppEntryKind::Url {} => {
+    //             app.path = app.name.clone();
+    //         },
+    //         AppEntryKind::DirEntry { .. } => {
+    //             app.path = app.name.clone();
+    //         },
+    //         _ => {}
+    //     }
+    // }
 
     fn create_query_app() -> AppEntry {
         AppEntry { 
             name: String::new(),
-            exe_info: AppExecutableInfo::Exe {},
+            kind: AppEntryKind::Command { command: "".into() },
             // Fill in the rest later.
             ..Default::default()
         }
     }
 
-    fn get_query(&self) -> &str {
-        return self.apps[0].name.as_ref();
-    }
+    // fn get_query(&self) -> &str {
+    //     return self.query.as_ref();
+    //     // return self.apps[0].name.as_ref();
+    // }
 
-    fn get_query_app(&self) -> &AppEntry {
-        return &self.apps[0];
-    }
-
-    fn get_query_app_mut(&mut self) -> &mut AppEntry {
-        return &mut self.apps[0];
-    }
+    // fn get_query_app_mut(&mut self) -> &mut AppEntry {
+    //     return &mut self.apps[0];
+    // }
 
     fn should_show_query_app(&self) -> bool {
-        let query_words = self.get_query().split(" ").collect::<Vec<_>>().len();
+        let query_words = self.query.split(" ").collect::<Vec<_>>().len();
         if query_words > 1 {
             return true;
         }
 
-        if let AppExecutableInfo::Url{} = self.get_query_app().exe_info {
+        if let StartAppsProviderMode::Url = self.mode {
             return true;
         }
 
@@ -617,9 +654,10 @@ impl StartAppsProvider {
     fn query_directory(&mut self) -> Vec<&mut dyn ListItem> {
         let query_app = if self.should_show_query_app() {
             Some(AppEntry {
-                exe_info: AppExecutableInfo::Exe{},
-                name: self.get_query().to_string(),
-                path: self.get_query().to_string(),
+                name: self.query.clone(),
+                kind: AppEntryKind::Command {
+                    command: self.query.clone(),
+                },
                 ..Default::default()
                 // ..self.get_query_app().clone()
             })
@@ -629,35 +667,50 @@ impl StartAppsProvider {
 
         crate::trace!("query", log::Level::Info, "query_directory query_app: {:?}", &query_app);
 
-        if let AppExecutableInfo::DirEntry { path, query, listing } = &mut self.get_query_app_mut().exe_info {
-            if listing.len() == 0 {
-                *listing = crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
-                    let name = p.to_str().unwrap().to_owned();
-                    // Checking if directory is really slow over file shares.
-                    // if p.is_dir() && !name.ends_with("\\") {
-                    //     name += "\\";
-                    // }
-                    return AppEntry {
-                        name: name.clone(),
-                        path: name,
-                        ..Default::default()
-                    };
-                }).collect::<Vec<AppEntry>>();
-                if let Some(app) = query_app {
-                    crate::trace!("query", log::Level::Info, "query_directory prepending: {:?}", &app);
-                    listing.insert(0, app);
-                }
-            } else {
-                if let Some(app) = query_app {
-                    listing[0] = app;
-                }
-            }
-            return listing.iter_mut().map(|app| {
-                app as &mut dyn ListItem
-            }).collect::<Vec<&mut dyn ListItem>>();
+        let maybe_dir_entry = std::path::Path::new(&self.query);
+
+        let (path, query) = if self.query.ends_with("\\") && maybe_dir_entry.exists() {
+            (maybe_dir_entry.to_owned(), String::new())
+        } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
+            (maybe_dir_entry.parent().unwrap().to_owned(), maybe_dir_entry.file_name().unwrap().to_str().unwrap_or("").to_owned())
         } else {
-            return vec![];
+            // panic!("Bad directory, how did we get here? {:?}", self.query);
+            // return vec![];
+            ("".into(), "".into())
+        };
+
+        if self.directory_listing_path.is_none() && query_app.is_none() /* || self.directory_listing_path.as_ref().unwrap().to_str() != path.to_str() */ {
+            crate::trace!("query", log::Level::Info, "query_directory get_directory_listing: {:?}, {:?}", path, query);
+
+            self.directory_listing_path = Some(path.clone());
+            self.directory_listing = Some(crate::path::get_directory_listing(&*path, &*query).unwrap().iter().map(|p| {
+                let name = p.to_str().unwrap().to_owned();
+                // Checking if directory is really slow over file shares.
+                // if p.is_dir() && !name.ends_with("\\") {
+                //     name += "\\";
+                // }
+                return AppEntry {
+                    name: name.clone(),
+                    kind: AppEntryKind::Exe {
+                        path: name,
+                        params: "".into(),
+                    },
+                    ..Default::default()
+                };
+            }).collect::<Vec<AppEntry>>());
+        } else {
+            if let Some(app) = query_app {
+                self.directory_listing = Some(vec![app]);
+            }
         }
+        return self.directory_listing.as_mut().unwrap().iter_mut().map(|app| {
+            app as &mut dyn ListItem
+        }).collect::<Vec<&mut dyn ListItem>>();
+    }
+
+    fn clear_directory_listing(&mut self) {
+        self.directory_listing = None;
+        self.directory_listing_path = None;
     }
 }
 
@@ -674,7 +727,7 @@ impl ListContentProvider for StartAppsProvider {
     //     //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
     //     // }).collect()
         
-    //     if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
+    //     if let AppEntryKind::DirEntry { .. } = self.get_query_app().kind {
 
     //     }
 
@@ -685,7 +738,7 @@ impl ListContentProvider for StartAppsProvider {
     //             return true;
     //         }
 
-    //         if let AppExecutableInfo::Link{ target_path, .. } = &app.exe_info {
+    //         if let AppEntryKind::Link{ target_path, .. } = &app.kind {
     //             if target_path.to_lowercase().contains(self.get_query()) {
     //                 return true;
     //             }
@@ -709,12 +762,11 @@ impl ListContentProvider for StartAppsProvider {
         // self.apps.iter().filter(|&p| {
         //     return p.file_name().unwrap_or(std::ffi::OsStr::new("")).to_str().unwrap().to_lowercase().contains(&self.filter)
         // }).collect()
-        
-        let query = self.get_query().to_string();
+
         let const_ref = unsafe { std::mem::transmute::<_, &StartAppsProvider>(self as *mut StartAppsProvider) };
         
-        if let AppExecutableInfo::DirEntry { .. } = self.get_query_app().exe_info {
-            crate::trace!("query", log::Level::Info, "query_for_items: query_directory, {:?}", self.get_query_app());
+        if let StartAppsProviderMode::DirectoryListing = self.mode {
+            // crate::trace!("query", log::Level::Info, "query_for_items: query_directory, {:?}", self.get_query_app());
             return self.query_directory();
         }
 
@@ -723,12 +775,16 @@ impl ListContentProvider for StartAppsProvider {
         let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
             .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
             .filter(|app| {
-            if app.name.to_lowercase().contains(&query.to_lowercase()) {
+            if app.name.to_lowercase().contains(&self.query.to_lowercase()) {
                 return true;
             }
 
-            if let AppExecutableInfo::Link { target_path, .. } = &app.exe_info {
-                if target_path.to_lowercase().contains(&query) {
+            if let AppEntryKind::Link { target_path, .. } = &app.kind {
+                if target_path.to_lowercase().contains(&self.query.to_lowercase()) {
+                    return true;
+                }
+            } else if let AppEntryKind::Command { command } = &app.kind {
+                if command.to_lowercase().contains(&self.query.to_lowercase()) {
                     return true;
                 }
             }
@@ -745,7 +801,7 @@ impl ListContentProvider for StartAppsProvider {
         but I can fix this by putting the first mut borrow, self.get_query_app_mut in its own function o.O
         */
 
-        if result.len() > 1 && result[1].exact_match(&query)  {
+        if result.len() > 1 && result[1].exact_match(&self.query)  {
             result.remove(0);
         }
 
@@ -762,43 +818,43 @@ impl ListContentProvider for StartAppsProvider {
     }
 
     fn set_query(&mut self, query: String) {
-        self.apps[0].name = query;
+        // TODO: maybe use this?
+        // https://stackoverflow.com/questions/34953711/unwrap-inner-type-when-enum-variant-is-known
+        // assert!(matches!(self.apps[0].kind, AppEntryKind::Command{..}));
+        // if let AppEntryKind::Command { command } = &mut self.apps[0].kind {
+        //     *command = query.clone();
+        // }
+        self.query = query;
 
-        let maybe_dir_entry = std::path::Path::new(&self.apps[0].name);
+        let maybe_dir_entry = std::path::Path::new(&self.query);
 
-        if self.apps[0].name.len() > 0 && !self.apps[0].name.ends_with(":") {
-            if self.apps[0].name.ends_with("\\") && maybe_dir_entry.exists() {
-                crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::DirEntry: {}", &self.apps[0].name);
-                self.apps[0].exe_info = AppExecutableInfo::DirEntry {
-                    path: maybe_dir_entry.to_owned(),
-                    query: "".to_owned(),
-                    listing: vec![],
-                };
-            } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
-                crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::DirEntry: {}", &self.apps[0].name);
-                self.apps[0].exe_info = AppExecutableInfo::DirEntry {
-                    path: maybe_dir_entry.parent().unwrap().to_owned(),
-                    query: maybe_dir_entry.file_name().unwrap().to_str().unwrap_or("").to_owned(),
-                    listing: vec![],
-                };
+        if self.query.len() > 0 && !self.query.ends_with(":") && self.query.chars().nth(0).unwrap().is_alphabetic() {
+            // Fall through to remember if we're in DirectoryListing mode.
+            crate::trace!("query", log::Level::Info, "set_query AppEntryKind::DirEntry: {}", &self.query);
+            if (maybe_dir_entry.is_absolute() && maybe_dir_entry.exists()) || maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
+                self.clear_directory_listing();
+                self.mode = StartAppsProviderMode::DirectoryListing;
             }
-        } else if self.apps[0].name.starts_with("http:") || self.apps[0].name.starts_with("https:") {
-            crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::Url: {}", &self.apps[0].name);
-            self.apps[0].exe_info = AppExecutableInfo::Url {};
+        } else if self.query.starts_with("http:") || self.query.starts_with("https:") {
+            self.mode = StartAppsProviderMode::Url;
+            crate::trace!("query",  log::Level::Info, "set_query AppEntryKind::Url: {}", &self.query);
+            // self.apps[0].kind = AppEntryKind::Url { path: self.query.clone() };
         } else {
-            crate::trace!("query", log::Level::Info, "set_query AppExecutableInfo::Exe: {}", &self.apps[0].name);
-            self.apps[0].exe_info = AppExecutableInfo::Exe {};
+            self.clear_directory_listing();
+            self.mode = StartAppsProviderMode::StartApps;
+            crate::trace!("query", log::Level::Info, "set_query AppEntryKind::Command: {}", &self.query);
+        }
+
+        if let AppEntryKind::Command{ command } = &mut self.apps[0].kind {
+            *command = self.query.clone();
+        } else {
+            // self.apps[0].name = self.query.clone();
         }
     }
 
     fn start(&mut self, filtered_index: usize, elevated: bool) {
-        let query_app = self.get_query_app() as *const _;
         let mut apps = self.query_for_items();
         let app = apps[filtered_index].as_mut_any().downcast_mut::<AppEntry>().unwrap();
-
-        if app as *const _ == query_app {
-            StartAppsProvider::parse_query_app(app);
-        }
 
         Self::update_history(&*app);
 
