@@ -602,7 +602,10 @@ impl StartAppsProvider {
         let query_app = if self.should_show_query_app() {
             Some(AppEntry {
                 exe_info: AppExecutableInfo::Exe{},
-                ..self.get_query_app().clone()
+                name: self.get_query().to_string(),
+                path: self.get_query().to_string(),
+                ..Default::default()
+                // ..self.get_query_app().clone()
             })
         } else {
             None
@@ -777,11 +780,7 @@ impl ListContentProvider for StartAppsProvider {
         let mut apps = self.query_for_items();
         let app = apps[filtered_index].as_mut_any().downcast_mut::<AppEntry>().unwrap();
 
-        // Well if app.path.len() is 0 then rest of struct has to be filled in..
-        // This is mainly for the case in query_directory where it realizes it needs
-        // to show the query app so it copies the real from get_query_app and puts it
-        // in first of DirEntry::listing.
-        if app as *const _ == query_app || app.path.len() == 0 {
+        if app as *const _ == query_app {
             StartAppsProvider::parse_query_app(app);
         }
 
@@ -814,7 +813,7 @@ impl ListContentProvider for StartAppsProvider {
             let _ = db.delete(&(unsafe { app.as_ref() }.unwrap()).name);
             let _ = db.flush();
         }
-        
+
         for i in 0 .. self.apps.len() {
             if &self.apps[i] as *const _ == app as *const _ {
                 self.apps.remove(i);
