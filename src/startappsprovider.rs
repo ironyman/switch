@@ -434,18 +434,15 @@ impl StartAppsProvider {
         return rocksdb::DB::open(&opts, crate::path::get_app_data_path("history").unwrap());
     }
 
+    // Order of apps is
+    // 1. query
+    // 2. history
+    // 3. indexed
     fn enumerate_start_apps() -> anyhow::Result<Vec<AppEntry>> {
-        let path = crate::path::get_app_data_path("apps.json")?;
-
         // Maybe run indexer if the file is not found. How to safely find indexer.exe?
         // if !std::path::Path::new(&path).exists() {
         // }
-        let mut apps: Vec<AppEntry> = vec![AppEntry { 
-            name: String::new(),
-            exe_info: AppExecutableInfo::Exe {},
-            // Fill in the rest later.
-            ..Default::default()
-        }];
+        let mut apps: Vec<AppEntry> = vec![Self::create_query_app()];
 
         // if let Ok(db) = rocksdb::DB::open_default(crate::path::get_app_data_path("history").unwrap()) {
         let mut history_apps: Vec<AppEntry> = vec![];
@@ -461,10 +458,20 @@ impl StartAppsProvider {
         }
         apps.extend(history_apps);
 
-        let mut file = std::fs::File::open(path)?;
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
-        apps.append(&mut serde_json::from_str(&buf)?);
+        // Parse all files that matches app*.json
+        let root_path = crate::path::get_app_data_path("")?;
+        crate::trace!("db", log::Level::Info, "enumerate_start_apps reading root path {:?}", root_path);
+        let app_paths = crate::path::get_directory_listing(root_path, "app")?;
+        for path in app_paths.iter() {
+            if !path.extension().unwrap_or(std::ffi::OsStr::new("")).eq("json") {
+                continue;
+            }
+            crate::trace!("db", log::Level::Info, "enumerate_start_apps reading file {:?}", path);
+            let mut file = std::fs::File::open(path)?;
+            let mut buf = String::new();
+            file.read_to_string(&mut buf)?;
+            apps.append(&mut serde_json::from_str(&buf)?);
+        }
         return Ok(apps);
     }
 
@@ -570,6 +577,15 @@ impl StartAppsProvider {
                 app.path = app.name.clone();
             },
             _ => {}
+        }
+    }
+
+    fn create_query_app() -> AppEntry {
+        AppEntry { 
+            name: String::new(),
+            exe_info: AppExecutableInfo::Exe {},
+            // Fill in the rest later.
+            ..Default::default()
         }
     }
 
