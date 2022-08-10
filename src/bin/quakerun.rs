@@ -163,13 +163,14 @@ unsafe extern "system" fn enum_window_proc(windowh: HWND, lparam: LPARAM) -> BOO
 }
 
 unsafe fn set_dwm_style(window: HWND) -> Result<()> {
-    let corner_preference = DWMWCP_DONOTROUND;
+    let disable_animation = BOOL(1);
     DwmSetWindowAttribute(
         window, 
-        DWMWA_WINDOW_CORNER_PREFERENCE,
-        &corner_preference as *const _ as *const core::ffi::c_void,
-        std::mem::size_of_val(&corner_preference) as u32)?;
+        DWMWA_TRANSITIONS_FORCEDISABLED,
+        core::mem::transmute(&disable_animation),
+        std::mem::size_of_val(&disable_animation) as u32)?;
 
+    println!("wtf5");
     // When specifying an explicit RGB color, the COLORREF value has the following hexadecimal form:
     // 0x00bbggrr
 
@@ -180,12 +181,12 @@ unsafe fn set_dwm_style(window: HWND) -> Result<()> {
         &border_color  as *const _ as *const core::ffi::c_void, 
         std::mem::size_of_val(&border_color) as u32)?;
 
-    let disable_animiation = BOOL(1);
+    let corner_preference = DWMWCP_DONOTROUND;
     DwmSetWindowAttribute(
         window, 
-        DWMWA_TRANSITIONS_FORCEDISABLED,
-        core::mem::transmute(&disable_animiation),
-        std::mem::size_of_val(&disable_animiation) as u32)?;
+        DWMWA_WINDOW_CORNER_PREFERENCE,
+        &corner_preference as *const _ as *const core::ffi::c_void,
+        std::mem::size_of_val(&corner_preference) as u32)?;
 
     // Making the quake window a tool window will disable animation
     // but it creates a minized window outside of taskbar.
@@ -448,7 +449,9 @@ fn set_event_by_name(event_name: &str) {
 
 unsafe fn configure_quake_window(hwnd: HWND) -> Result<()> {
     if !hwnd.is_invalid() {
-        set_dwm_style(hwnd)?;
+        // This can fail on windows 10 where the DWM options are not available.
+        // TODO: check if options are supported.
+        let _ = set_dwm_style(hwnd);
         ShowWindow(hwnd, SW_HIDE);
     }
     return Ok(());
