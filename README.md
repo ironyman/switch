@@ -43,14 +43,14 @@ We can copy the output to a more permanent path and start quakerun.exe on logon
 ```
 md c:\switch
 copy scripts\*,target\debug\*.exe c:\switch
-c:\switch\install.ps1
+c:\switch\install-logontask.ps1
 ```
 
 Alternatively for dev inner loop,
 ```
 cargo build
 copy .\scripts\* .\target\debug\
-.\target\debug\install.ps1
+.\target\debug\install-logontask.ps1
 ```
 To rebuild and restart
 ```
@@ -64,7 +64,7 @@ or
 ```
 To uninstall
 ```
-c:\switch\uninstall.ps1
+c:\switch\uninstall-logontask.ps1
 del -recurse c:\switch
 ```
 
