@@ -170,7 +170,6 @@ unsafe fn set_dwm_style(window: HWND) -> Result<()> {
         core::mem::transmute(&disable_animation),
         std::mem::size_of_val(&disable_animation) as u32)?;
 
-    println!("wtf5");
     // When specifying an explicit RGB color, the COLORREF value has the following hexadecimal form:
     // 0x00bbggrr
 

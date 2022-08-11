@@ -828,7 +828,7 @@ impl ListContentProvider for StartAppsProvider {
 
         let maybe_dir_entry = std::path::Path::new(&self.query);
 
-        if self.query.len() > 0 && !self.query.ends_with(":") && self.query.chars().nth(0).unwrap().is_alphabetic() {
+        if self.query.len() > 0 && !self.query.ends_with(":") && (self.query.chars().nth(0).unwrap().is_alphabetic() || self.query.chars().nth(0).unwrap() == '\\') {
             // Fall through to remember if we're in DirectoryListing mode.
             crate::trace!("query", log::Level::Info, "set_query AppEntryKind::DirEntry: {}", &self.query);
             if (maybe_dir_entry.is_absolute() && maybe_dir_entry.exists()) || maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
