@@ -138,7 +138,22 @@ impl ListItem for AppEntry {
     // Used for tab complete. Should return something that matches this entry.
     fn as_matchable_string(&self) -> String {
         let app = self.as_any().downcast_ref::<AppEntry>().unwrap();
-        return app.name.clone();
+        match &app.kind {
+            AppEntryKind::Exe { path: _path, ..} => {
+                return app.name.clone();
+                // return app.name.clone() + " (" + _path + ")";
+            },
+            AppEntryKind::Link { .. } => {
+                return app.name.clone();
+            },
+            AppEntryKind::Appx { .. } => {
+                return app.name.clone();
+            },
+            AppEntryKind::Command { command } => {
+                return command.clone();
+            }
+        }
+        // return app.name.clone();
     }
 }
 
