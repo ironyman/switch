@@ -422,7 +422,7 @@ impl From<&AppEntry> for String {
                 return app.name.clone();
             },
             AppEntryKind::Command { command } => {
-                if app.name.len() > 0 {
+                if app.name.len() > 0 && &app.name != command {
                     return app.name.clone() + " (" + &command + ")";
                 } else {
                     return command.clone();
