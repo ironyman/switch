@@ -862,6 +862,8 @@ impl ListContentProvider for StartAppsProvider {
 
         if let AppEntryKind::Command{ command } = &mut self.apps[0].kind {
             *command = self.query.clone();
+            // The name is used as key in history so must be unique.
+            self.apps[0].name = self.query.clone();
         } else {
             // self.apps[0].name = self.query.clone();
         }
