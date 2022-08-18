@@ -242,7 +242,7 @@ pub unsafe extern "system" fn create_highlight_window(_instance: *mut TP_CALLBAC
                 }
                 WM_DESTROY => {
                     switch::trace!("highlight_window", log::Level::Debug, "wndproc: destroy");
-                    // PostQuitMessage(0);
+                    PostQuitMessage(0);
                     LRESULT(0)
                 }
                 _ => DefWindowProcA(window, message, wparam, lparam),
@@ -291,6 +291,8 @@ pub unsafe extern "system" fn create_highlight_window(_instance: *mut TP_CALLBAC
     while GetMessageA(&mut message, HWND(0), 0, 0).into() {
         DispatchMessageA(&message);
     }
+
+    UnregisterClassA(wc.lpszClassName, instance);
 }
 
 // Use create_highlight_window instead.
