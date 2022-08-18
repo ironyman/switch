@@ -146,6 +146,27 @@ impl WindowInfo {
             window_text,
         });
     }
+
+    fn is_overlap(&self, other: &WindowInfo) -> bool {
+        // https://stackoverflow.com/questions/306316/determine-if-two-rectangles-overlap-each-other
+        // Note top and bottom is reversed in window coordinates, ie origin is at top left corner of screen and increasing y goes down, increasing x goes right.
+        // The article is in cartesian coordinates where origin is at bottom left corner of positive quadrant (1st) and increasing y goes up, increasing x goes right.
+        // if (RectA.Left < RectB.Right && RectA.Right > RectB.Left &&
+        // RectA.Top > RectB.Bottom && RectA.Bottom < RectB.Top ) 
+        // self.rc.left < other.rc.right && self.rc.right > other.rc.left &&
+        //     self.rc.top < other.rc.bottom && self.rc.bottom > other.rc.top
+        // We don't need this because windows has this api.
+
+        unsafe {
+            let mut self_rc = self.rc.clone();
+            // If window is maximized, it overlaps with other windows on other screens at the edges a little bit.
+            if IsZoomed(self.hwnd).as_bool() {
+                InflateRect(&mut self_rc, -20, -20);
+            }
+            let mut difference: RECT = std::mem::zeroed();
+            return IntersectRect(&mut difference, &self_rc, &other.rc).as_bool();
+        }
+    }
 }
 
 impl std::fmt::Display for WindowInfo {
@@ -435,6 +456,30 @@ pub unsafe fn get_adjacent_window(from_window: HWND, dir: Direction) -> anyhow::
     //     }
     // }
     // Ok(HWND(0))
+}
+
+
+pub unsafe fn get_next_overlapped_window(from_window: HWND) -> anyhow::Result<HWND> {
+    let mut windows = get_candidate_windows();
+
+    crate::trace!("directional_switching", log::Level::Debug, "get_candidate_windows: {:?}", windows);
+
+    calculate_visibility(&mut windows);
+    
+    let from_window_info = windows.iter().find(|&w| w.hwnd == from_window)
+        .ok_or(anyhow::Error::msg("From window not found"))?;
+
+    crate::trace!("directional_switching", log::Level::Debug, "from_window_info: {:?}", from_window_info);
+
+    let overlapped = windows.iter()
+        .filter(|&w| w.hwnd != from_window)
+        .filter(|&w| !IsIconic(w.hwnd).as_bool())
+        .filter(|&w| from_window_info.is_overlap(w))
+        .nth(0)
+        .ok_or(anyhow::Error::msg("Overlapped window not found"))?;
+    crate::trace!("directional_switching", log::Level::Debug, "Overlapped: {:?}", overlapped);
+
+    return Ok(overlapped.hwnd);
 }
 
 // cargo.exe test --package switch --lib -- windowgeometry::enumerate_windows --exact --nocapture

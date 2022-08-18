@@ -384,26 +384,31 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
             set_event_by_name(BTM_EVENT_NAME);
         } else if press_state == WM_KEYUP {
             std::thread::spawn(move || {
+                let current = GetForegroundWindow();
+
                 let adjacent_window = match vk {
                     VK_LEFT => {
                         switch::windowgeometry::get_adjacent_window(
-                            GetForegroundWindow(),
+                            current,
                             switch::windowgeometry::Direction::Left)
                     },
                     VK_RIGHT => {
                         switch::windowgeometry::get_adjacent_window(
-                            GetForegroundWindow(),
+                            current,
                             switch::windowgeometry::Direction::Right)
                     },
                     VK_UP => {
                         switch::windowgeometry::get_adjacent_window(
-                            GetForegroundWindow(),
+                            current,
                             switch::windowgeometry::Direction::Up)
                     },
                     VK_DOWN => {
                         switch::windowgeometry::get_adjacent_window(
-                            GetForegroundWindow(),
+                            current,
                             switch::windowgeometry::Direction::Down)
+                    },
+                    VK_TAB => {
+                        switch::windowgeometry::get_next_overlapped_window(current)
                     },
                     _ => {
                         Err(anyhow::Error::from(Error::from(ERROR_INVALID_PARAMETER)))
@@ -419,6 +424,11 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 let _ = set_foreground_window_terminal(adjacent_window);
                 let timer = CreateThreadpoolTimer(Some(create_highlight_window), core::mem::transmute(adjacent_window), std::ptr::null());
                 SetThreadpoolTimer(timer, &FILETIME::default(), 0, 0);
+                // We have to do SetWindowPos last for VK_TAB otherwise set_foreground_window_terminal doesn't work.
+                if vk == VK_TAB {
+                    SetWindowPos(current, HWND_BOTTOM, 0, 0, 0, 0, 
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_DEFERERASE | SWP_NOACTIVATE | SWP_NOREDRAW);
+                }
             });
         }
         return LRESULT(1);
@@ -468,7 +478,7 @@ fn initialize_index() {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey", "directional_switching"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
