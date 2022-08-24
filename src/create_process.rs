@@ -937,3 +937,25 @@ pub unsafe fn create_medium_process_simple(cmdline: String) -> Result<u32> {
 
     return Ok(pi.dwProcessId);
 }
+
+pub fn shell_expand(string: &str) -> String {
+    let mut expanded = [0u8; 512];
+
+    let input = String::from(string) + "\0";
+    let len = unsafe {
+        windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(input.as_ptr()), &mut expanded) as usize
+    };
+
+    let result = if len <= expanded.len() {
+        // Exclude null terminator which is needed for ExpandEnvironmentStringsA but not for rust strings.
+        String::from_utf8_lossy(&expanded[..len-1]).into()
+    } else {
+        let mut expanded = vec![0u8; len];
+        let len = unsafe {
+            windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(input.as_ptr()), &mut expanded) as usize
+        };
+        String::from_utf8_lossy(&expanded[..len-1]).into()
+    };
+
+    return result;
+}

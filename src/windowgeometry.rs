@@ -160,9 +160,10 @@ impl WindowInfo {
         unsafe {
             let mut self_rc = self.rc.clone();
             // If window is maximized, it overlaps with other windows on other screens at the edges a little bit.
-            if IsZoomed(self.hwnd).as_bool() {
-                InflateRect(&mut self_rc, -20, -20);
-            }
+            // Snapped windows are not maximized but still overlap other windows at the edges of screen.
+            // if IsZoomed(self.hwnd).as_bool() {
+                InflateRect(&mut self_rc, -50, -50);
+            // }
             let mut difference: RECT = std::mem::zeroed();
             return IntersectRect(&mut difference, &self_rc, &other.rc).as_bool();
         }

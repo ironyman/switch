@@ -195,6 +195,7 @@ impl AppEntry {
                 }
             },
             AppEntryKind::Command { command } => {
+                let command = crate::create_process::shell_expand(command);
                 let args: Vec<String> = command.split(" ").map(String::from).collect();
                 if args.len() < 1 {
                     return Ok(());
@@ -367,6 +368,7 @@ impl AppEntry {
                     );
                 },
                 AppEntryKind::Command { command } => {
+                    let command = crate::create_process::shell_expand(command);
                     let args: Vec<String> = command.split(" ").map(String::from).collect();
                     if args.len() < 1 {
                         return Ok(());
@@ -788,7 +790,10 @@ impl ListContentProvider for StartAppsProvider {
         crate::trace!("query", log::Level::Info, "query_for_items: should_show_query_app {}", const_ref.should_show_query_app());
 
         let mut result: Vec<&mut AppEntry> = self.apps.iter_mut()
-            .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
+            // If we have no results, result.len() then we have to show query app, but we dont' know that at this point.
+            // And if can't add self.apps[0] (query app) back because this line borrows self.apps.
+            // drop(result) also doesn't change the borrow checker status. So we should live this in and remove query app later.
+            // .skip(if const_ref.should_show_query_app() { 0 } else { 1 })
             .filter(|app| {
             if app.name.to_lowercase().contains(&self.query.to_lowercase()) {
                 return true;
@@ -816,7 +821,9 @@ impl ListContentProvider for StartAppsProvider {
         but I can fix this by putting the first mut borrow, self.get_query_app_mut in its own function o.O
         */
 
-        if result.len() > 1 && result[1].exact_match(&self.query)  {
+        if (result.len() > 1 && result[1].exact_match(&self.query)) || 
+            (result.len() > 1 && !const_ref.should_show_query_app())
+        {
             result.remove(0);
         }
 
@@ -843,7 +850,10 @@ impl ListContentProvider for StartAppsProvider {
 
         let maybe_dir_entry = std::path::Path::new(&self.query);
 
-        if self.query.len() > 0 && !self.query.ends_with(":") && (self.query.chars().nth(0).unwrap().is_alphabetic() || self.query.chars().nth(0).unwrap() == '\\') {
+        if self.query.len() > 0 &&
+            !self.query.ends_with(":") && !self.query.starts_with("%") &&
+            (self.query.chars().nth(0).unwrap().is_alphabetic() || self.query.chars().nth(0).unwrap() == '\\')
+        {
             // Fall through to remember if we're in DirectoryListing mode.
             crate::trace!("query", log::Level::Info, "set_query AppEntryKind::DirEntry: {}", &self.query);
             if (maybe_dir_entry.is_absolute() && maybe_dir_entry.exists()) || maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
