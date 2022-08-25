@@ -669,7 +669,22 @@ impl StartAppsProvider {
     }
 
     fn query_directory(&mut self) -> Vec<&mut dyn ListItem> {
-        let query_app = if self.should_show_query_app() {
+
+        let maybe_dir_entry = std::path::Path::new(&self.query);
+
+        let (path, query) = if self.query.ends_with("\\") && maybe_dir_entry.exists() {
+            (maybe_dir_entry.to_owned(), String::new())
+        } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
+            (maybe_dir_entry.parent().unwrap().to_owned(), maybe_dir_entry.file_name().unwrap().to_str().unwrap_or("").to_owned())
+        } else {
+            // panic!("Bad directory, how did we get here? {:?}", self.query);
+            // return vec![];
+            ("".into(), "".into())
+        };
+
+        let query_words = query.split(" ").collect::<Vec<_>>().len();
+
+        let query_app = if query_words > 1 {
             Some(AppEntry {
                 name: self.query.clone(),
                 kind: AppEntryKind::Command {
@@ -683,18 +698,6 @@ impl StartAppsProvider {
         };
 
         crate::trace!("query", log::Level::Info, "query_directory query_app: {:?}", &query_app);
-
-        let maybe_dir_entry = std::path::Path::new(&self.query);
-
-        let (path, query) = if self.query.ends_with("\\") && maybe_dir_entry.exists() {
-            (maybe_dir_entry.to_owned(), String::new())
-        } else if maybe_dir_entry.parent().map(|d| d.exists()).unwrap_or(false) {
-            (maybe_dir_entry.parent().unwrap().to_owned(), maybe_dir_entry.file_name().unwrap().to_str().unwrap_or("").to_owned())
-        } else {
-            // panic!("Bad directory, how did we get here? {:?}", self.query);
-            // return vec![];
-            ("".into(), "".into())
-        };
 
         if self.directory_listing_path.is_none() && query_app.is_none() /* || self.directory_listing_path.as_ref().unwrap().to_str() != path.to_str() */ {
             crate::trace!("query", log::Level::Info, "query_directory get_directory_listing: {:?}, {:?}", path, query);
@@ -870,7 +873,7 @@ impl ListContentProvider for StartAppsProvider {
             crate::trace!("query", log::Level::Info, "set_query AppEntryKind::Command: {}", &self.query);
         }
 
-        if let AppEntryKind::Command{ command } = &mut self.apps[0].kind {
+        if let AppEntryKind::Command { command } = &mut self.apps[0].kind {
             *command = self.query.clone();
             // The name is used as key in history so must be unique.
             self.apps[0].name = self.query.clone();

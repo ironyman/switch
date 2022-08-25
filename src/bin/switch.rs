@@ -351,7 +351,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .takes_value(true))
         .get_matches();
 
-    switch::log::initialize_log(log::Level::Debug, &["init", "start"], switch::path::get_app_data_path("switch.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "query"], switch::path::get_app_data_path("switch.log")?)?;
 
     // setup terminal
     enable_raw_mode()?;
