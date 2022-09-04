@@ -1,4 +1,4 @@
-﻿From: <insert applicable license url here>
+﻿From: https://github.com/ironyman/switch/blob/master/LICENSE
 
 MIT LICENSE
 
