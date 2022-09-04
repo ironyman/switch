@@ -1,0 +1,5 @@
+# [target.'cfg(all(windows, target_env = "msvc"))']
+[target.x86_64-pc-windows-msvc]
+#rustflags = ["-C", "target-feature=+crt-static"]
+#rustflags = ["-Ctarget-feature=+crt-static","-Zunstable-options"]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -8,6 +8,9 @@ $files = (
     ".\target\release\quakerun.exe",
     ".\target\release\switch.exe",
     ".\target\release\indexer.exe"
+# Static link instead of shipping with dlls seems more convenient famous last words
+#    "$env:WINDIR\system32\msvcp140.dll",
+#    "$env:WINDIR\system32\vcruntime140.dll"
 )
 $unshim = (
     "$PSScriptRoot\tools\noconsole.exe.ignore",

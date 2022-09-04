@@ -81,3 +81,7 @@ And to install the packaged package
 ```
 cinst -y switch -source (pwd).Path
 ```
+or
+```
+choco install -y switch*.nupkg
+```

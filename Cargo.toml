@@ -66,6 +66,10 @@ features = [
     "Win32_System_DataExchange",
 ]
 
+# Without this, vcruntime140.dll and others will be needed to run output.
+[build-dependencies]
+static_vcruntime = "2.0"
+
 [features]
 default = []
 test_pipe_security = []
