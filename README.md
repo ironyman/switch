@@ -45,7 +45,7 @@ md c:\switch
 copy scripts\*,target\debug\*.exe c:\switch
 c:\switch\install-logontask.ps1
 ```
-
+## Inner loop
 Alternatively for dev inner loop,
 ```
 cargo build
@@ -84,4 +84,15 @@ cinst -y switch -source (pwd).Path
 or
 ```
 choco install -y switch*.nupkg
+```
+# Check install status
+```
+Get-ScheduledTask -taskpath \ -TaskName quakerun | select -ExpandProperty Actions
+```
+
+Logs are here
+
+```
+$env:APPDATA\switch\quake_terminal_runner.log
+$env:APPDATA\switch\switch.log
 ```

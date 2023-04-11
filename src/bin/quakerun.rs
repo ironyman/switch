@@ -309,8 +309,10 @@ unsafe extern "system" fn _toggle_highlight(_instance: *mut TP_CALLBACK_INSTANCE
 unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     static mut CAPSLOCK_PRESSED: bool = false;
     static mut SHIFT_PRESSED: bool = false;
+    switch::trace!("hotkey", log::Level::Info, "Enter low_level_keyboard_proc");
 
     if code < 0 || code != HC_ACTION as i32 {
+        switch::trace!("hotkey", log::Level::Info, "Immediately CallNextHookEx");
         return CallNextHookEx(HOOK_HANDLE, code, wparam, lparam);
     }
 
@@ -318,25 +320,36 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
     let vk = VIRTUAL_KEY((*kbdllhookstruct).vkCode as u16);
     let press_state = wparam.0 as u32;
 
+    let mut key_text: [u8; 512] = [0; 512];
+    let vsc = MapVirtualKeyA(vk.0.into(), MAPVK_VK_TO_VSC);
+    let _key_text_len = GetKeyNameTextA((vsc << 16) as i32, &mut key_text);
+    switch::trace!("hotkey", log::Level::Info, "low_level_keyboard_proc key {}, {}, {}", vk.0, press_state, std::str::from_utf8(&key_text).unwrap().trim_matches(char::from(0)));
+
     if vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT  {
         if press_state == WM_KEYDOWN {
+            switch::trace!("hotkey", log::Level::Info, "Shift pressed");
             SHIFT_PRESSED = true;
         } else {
+            switch::trace!("hotkey", log::Level::Info, "Shift released");
             SHIFT_PRESSED = false;
         }
     }
 
     if vk == VK_CAPITAL && !SHIFT_PRESSED {
         if press_state == WM_KEYDOWN {
+            switch::trace!("hotkey", log::Level::Info, "Caps lock pressed");
             CAPSLOCK_PRESSED = true;
         } else {
+            switch::trace!("hotkey", log::Level::Info, "Caps lock released");
             CAPSLOCK_PRESSED = false;
         }
         return LRESULT(1);
     }
 
     if CAPSLOCK_PRESSED {
+        switch::trace!("hotkey", log::Level::Info, "Caps lock modifier actions");
         if press_state == WM_KEYDOWN && vk == VK_P {
+            switch::trace!("hotkey", log::Level::Info, "CAPS + P pressed");
             std::thread::spawn(move || {
                 let arg = "--mode startapps";
                 // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
@@ -433,9 +446,10 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                 }
             });
         }
+        switch::trace!("hotkey", log::Level::Info, "Caps lock modifier actions handled");
         return LRESULT(1);
     }
-
+    switch::trace!("hotkey", log::Level::Info, "Exiting with CallNextHookEx");
     return CallNextHookEx(HOOK_HANDLE, code, wparam, lparam);
 }
 
