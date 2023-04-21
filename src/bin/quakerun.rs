@@ -46,6 +46,22 @@ static mut HOOK_HANDLE: HHOOK = HHOOK(0);
 static mut START_SWITCH_WRITE: HANDLE = HANDLE(0);
 // static mut MAIN_THREAD_ID: u32 = 0u32;
 
+#[derive(Default)]
+struct MessageLoopContext {
+    current_running_process: HANDLE,
+    run_quake_event: HANDLE,
+    should_exit_event: HANDLE,
+    open_quake_event: HANDLE,
+    hide_quake_event: HANDLE,
+    btm_event: HANDLE,
+    start_switch_read: HANDLE,
+    start_switch_read_overlapped: windows::Win32::System::IO::OVERLAPPED,
+    quake_window: HWND,
+}
+
+unsafe impl Send for MessageLoopContext {}
+unsafe impl Sync for MessageLoopContext {}
+
 unsafe fn create_initial_quake_window(command: &str) -> Result<HWND> {
     let cmdline = "wt -w _quake ".to_string() 
         + &format!("{} --runner -c \"{}\"", std::env::current_exe().unwrap().to_str().unwrap(), command);
@@ -323,7 +339,7 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
     let mut key_text: [u8; 512] = [0; 512];
     let vsc = MapVirtualKeyA(vk.0.into(), MAPVK_VK_TO_VSC);
     let _key_text_len = GetKeyNameTextA((vsc << 16) as i32, &mut key_text);
-    switch::trace!("hotkey", log::Level::Info, "low_level_keyboard_proc key {}, {}, {}", vk.0, press_state, std::str::from_utf8(&key_text).unwrap().trim_matches(char::from(0)));
+    // switch::trace!("hotkey", log::Level::Info, "low_level_keyboard_proc key {}, {}, {}", vk.0, press_state, std::str::from_utf8(&key_text).unwrap().trim_matches(char::from(0)));
 
     if vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT  {
         if press_state == WM_KEYDOWN {
@@ -494,7 +510,7 @@ fn initialize_index() {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey", "directional_switching"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
@@ -505,60 +521,68 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         // MAIN_THREAD_ID = GetCurrentThreadId();
 
-        let mut waits = WaitList::new();
-        let mut current_running_process = HANDLE(0);
+        let waits = std::sync::Arc::new(
+            std::sync::Mutex::new(
+                WaitList::new()
+            )
+        );
+        let context = std::sync::Arc::new(
+            std::sync::RwLock::new(
+                MessageLoopContext::default()
+            )
+        );
 
         SetConsoleCtrlHandler(Some(ctrl_handler), BOOL(1));
 
         // TODO remove this event. And maybe other events.
-        let run_quake_event = CreateEventW(
+        context.write().unwrap().run_quake_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
             std::ffi::OsString::from(RUN_QUAKE_EVENT_NAME)
         );
-        assert!(waits.add(run_quake_event));
+        assert!(waits.lock().unwrap().add(context.read().unwrap().run_quake_event));
 
-        let should_exit_event = CreateEventW(
+        context.write().unwrap().should_exit_event = CreateEventW(
             std::ptr::null(),
             BOOL(1),
             BOOL(0),
             std::ffi::OsString::from(EXIT_QUAKE_EVENT_NAME)
         );
-        assert!(waits.add(should_exit_event));
-        assert!(!should_exit_event.is_invalid());
+        assert!(waits.lock().unwrap().add(context.read().unwrap().should_exit_event));
+        assert!(!context.read().unwrap().should_exit_event.is_invalid());
 
-        let open_quake_event = CreateEventW(
+        context.write().unwrap().open_quake_event = CreateEventW(
             std::ptr::null(),
-            BOOL(1),
+            BOOL(0),
             BOOL(0),
             std::ffi::OsString::from(OPEN_QUAKE_EVENT_NAME)
         );
-        assert!(waits.add(open_quake_event));
+        assert!(waits.lock().unwrap().add(context.read().unwrap().open_quake_event));
 
-        let hide_quake_event = CreateEventW(
+        context.write().unwrap().hide_quake_event = CreateEventW(
             std::ptr::null(),
-            BOOL(1),
+            BOOL(0),
             BOOL(0),
             std::ffi::OsString::from(HIDE_QUAKE_EVENT_NAME)
         );
-        assert!(waits.add(hide_quake_event));
+        assert!(waits.lock().unwrap().add(context.read().unwrap().hide_quake_event));
 
-        let btm_event = CreateEventW(
+        context.write().unwrap().btm_event = CreateEventW(
             std::ptr::null(),
             BOOL(0),
             BOOL(0),
             std::ffi::OsString::from(BTM_EVENT_NAME)
         );
-        assert!(waits.add(btm_event));
+        assert!(waits.lock().unwrap().add(context.read().unwrap().btm_event));
 
         // Starting waiting for "start switch" messages.
         // let mut start_switch_read = HANDLE(0);
         let mut buf = [0u8; 256];
-        let mut start_switch_read_overlapped = windows::Win32::System::IO::OVERLAPPED::default();
-        start_switch_read_overlapped.hEvent = CreateEventW(
+        context.write().unwrap().start_switch_read_overlapped = windows::Win32::System::IO::OVERLAPPED::default();
+        context.write().unwrap().start_switch_read_overlapped.hEvent = CreateEventW(
             std::ptr::null(),
-            BOOL(1),
+            BOOL(0),
             BOOL(0),
             PCWSTR(std::ptr::null()),
         );
@@ -573,7 +597,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
             SDDL_REVISION_1,
             &mut (sa.lpSecurityDescriptor as *mut SECURITY_DESCRIPTOR),
             std::ptr::null_mut());
-        let start_switch_read = CreateNamedPipeA(
+            context.write().unwrap().start_switch_read = CreateNamedPipeA(
             PCSTR("\\\\.\\Pipe\\QuakeTerminalRunner\0".as_ptr()),
             PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_MESSAGE,
@@ -608,19 +632,22 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         //     std::ptr::null(),
         //     std::ptr::null());
 
-        let _res = ReadFile(start_switch_read, 
-            buf.as_mut_ptr() as _, 
-            buf.len() as u32,
-            std::ptr::null_mut(),
-            &mut start_switch_read_overlapped);
-        // switch::trace!("init", log::Level::Info, "ReadFile gle {} ret {}", GetLastError().0, res.0);
-        assert!(GetLastError() == ERROR_IO_PENDING);
-        SetLastError(NO_ERROR);
-        assert!(waits.add(start_switch_read_overlapped.hEvent));
+        {
+            let mut context_unwrapped = context.write().unwrap();
+            let _res = ReadFile(context_unwrapped.start_switch_read, 
+                buf.as_mut_ptr() as _, 
+                buf.len() as u32,
+                std::ptr::null_mut(),
+                &mut context_unwrapped.start_switch_read_overlapped);
+            // switch::trace!("init", log::Level::Info, "ReadFile gle {} ret {}", GetLastError().0, res.0);
+            assert!(GetLastError() == ERROR_IO_PENDING);
+            SetLastError(NO_ERROR);
+            assert!(waits.lock().unwrap().add(context_unwrapped.start_switch_read_overlapped.hEvent));
+        }
 
         let terminal_pid = windowprovider::getppid(GetCurrentProcessId());
-        let quake_window = get_process_window(terminal_pid)?;
-        configure_quake_window(quake_window)?;
+        context.write().unwrap().quake_window = get_process_window(terminal_pid)?;
+        configure_quake_window(context.read().unwrap().quake_window)?;
 
         // backtick
         // https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
@@ -634,128 +661,153 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         // }
 
         HOOK_HANDLE = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), HINSTANCE(0), 0);
+        let mut threads = vec![];
 
         loop {
             let mut msg: MSG = std::mem::zeroed();
 
-            match waits.wait() {
+            // match waits.lock().unwrap().wait() {
+            let waiter = waits.lock().unwrap().waiter();
+            match waiter() {
                 WaitResult::Handle(h) => {
-                    if h == run_quake_event {
-                        // not using this anymore.
-                        // continue;
-                        // switch::console::clear_console()?;
+                    switch::trace!("message_queue", log::Level::Info, "Handling handle result {}", h.0);
 
-                        let pid = switch::create_process::create_process(command.into());
-
-                        let pid = if pid.is_err() {
-                            set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                            ResetEvent(run_quake_event);
-                            continue
-                        } else {
-                            pid.unwrap()
-                        };
-
-                        current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
-                        waits.add(current_running_process);
-                        ResetEvent(run_quake_event);
-                        set_foreground_window_terminal(quake_window)?;
-                    } else if h == should_exit_event {
+                    if h == context.read().unwrap().should_exit_event {
                         switch::trace!("init", log::Level::Info, "quake_terminal_runner exiting.");
                         break;
-                    } else if h == open_quake_event {
-                        switch::trace!("message_queue", log::Level::Info, "WaitForMultipleObjects: OPEN_WAIT");
+                    }
+                    
+                    let command_rc: std::sync::Arc<std::string::String> = std::sync::Arc::new(command.into());
+                    let waits_clone = waits.clone();
+                    let context_clone = context.clone();
 
-                        if !IsWindowVisible(quake_window).as_bool() {
-                            SetEvent(run_quake_event);
-                            ShowWindow(quake_window, SW_SHOW);
-                        }
+                    let mut closure = move || {
+                        if h == context_clone.read().unwrap().run_quake_event {
+                            // not using this anymore.
+                            // continue;
+                            // switch::console::clear_console()?;
 
-                        // windows2::set_foreground_window_ex(quake_window);
+                            let pid = switch::create_process::create_process(command_rc.to_string());
 
-                        let cmdline = "wt -w _quake fp --target 0".to_string();
-                        switch::create_process::create_process(cmdline)?;
-
-                        ResetEvent(open_quake_event);
-                    } else if h == hide_quake_event {
-                        switch::trace!("message_queue", log::Level::Info, "WaitForMultipleObjects: HIDE_WAIT");
-                        ShowWindow(quake_window, SW_HIDE);
-                        ShowWindow(quake_window, SW_MINIMIZE);
-                        ResetEvent(hide_quake_event);
-                    } else if h == current_running_process {
-                        waits.remove(current_running_process);
-                        current_running_process = HANDLE(0);
-                        set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                    } else if h == start_switch_read_overlapped.hEvent {
-                        if current_running_process.is_invalid() {
-                            let mut buf_read = 0u32;
-
-                            GetOverlappedResult(start_switch_read, &start_switch_read_overlapped, &mut buf_read, BOOL(0));
-                            let cmdline = format!("{} {}", &command, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap());
-                            let pid = switch::create_process::create_process(cmdline.clone());
-
-                            if pid.is_err() {
-                                //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                                // ResetEvent(run_quake_event);
-                                //continue
-                                switch::trace!("runtime", log::Level::Error, "create_process {} failed: {:?}", &cmdline, pid.err());
+                            let pid = if pid.is_err() {
+                                set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                                ResetEvent(context_clone.read().unwrap().run_quake_event);
+                                return;
                             } else {
-                                current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid.unwrap());
-                                waits.add(current_running_process);
+                                pid.unwrap()
                             };
-                        }
 
-                        if !current_running_process.is_invalid() {
-                            set_foreground_window_terminal(quake_window)?;
-                        }
+                            context_clone.write().unwrap().current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid);
+                            waits_clone.lock().unwrap().add(context_clone.read().unwrap().current_running_process);
+                            ResetEvent(context_clone.read().unwrap().run_quake_event);
+                            _ = set_foreground_window_terminal(context_clone.read().unwrap().quake_window);
+                        } 
+                        else if h == context_clone.read().unwrap().open_quake_event {
+                            switch::trace!("message_queue", log::Level::Info, "WaitForMultipleObjects: OPEN_WAIT");
 
-                        // Read for the next command.
-                        ReadFile(start_switch_read, 
-                            buf.as_mut_ptr() as _, 
-                            buf.len() as u32,
-                            std::ptr::null_mut(),
-                            &mut start_switch_read_overlapped);
-                        if GetLastError() != ERROR_IO_PENDING {
-			                switch::trace!("runtime", log::Level::Info, "ReadFile start_switch_read failed with {}", GetLastError().0);
-                        }
-                        SetLastError(NO_ERROR);
-                    } else if h == btm_event {
-                        // Same as above but we want to run unelevated because the path for btm is medium integrity.
-                        if current_running_process.is_invalid() {
-                            let cmdline: String;
-                            // cargo install bottom
-                            let btm_path = "%USERPROFILE%\\.cargo\\bin\\btm.exe -b\0";
-                            let mut expanded: [u8; 512] = [0; 512];
-                            // PSTR(expanded.as_mut_ptr())
-                            let len = windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(btm_path.as_ptr()), &mut expanded) as usize;
-                            // Exclude null terminator which is needed for ExpandEnvironmentStringsA but not for rust strings.
-                            cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
+                            if !IsWindowVisible(context_clone.read().unwrap().quake_window).as_bool() {
+                                SetEvent(context_clone.read().unwrap().run_quake_event);
+                                ShowWindow(context_clone.read().unwrap().quake_window, SW_SHOW);
+                            }
 
-                            let pid = switch::create_process::create_process(cmdline.clone());
+                            // windows2::set_foreground_window_ex(context_clone.read().unwrap().quake_window);
 
-                            if pid.is_err() {
-                                //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
-                                // ResetEvent(run_quake_event);
-                                //continue
-                                switch::trace!("runtime", log::Level::Error, "create_medium_process {} failed: {:?}", &cmdline, pid.err());
-                                continue;
-                            } else {
-                                current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid.unwrap());
-                                waits.add(current_running_process);
-                            };
-                        }
-                        if !current_running_process.is_invalid() {
-                            set_foreground_window_terminal(quake_window)?;
-                        }
+                            let cmdline = "wt -w _quake fp --target 0".to_string();
+                            _ = switch::create_process::create_process(cmdline);
 
+                            ResetEvent(context_clone.read().unwrap().open_quake_event);
+                        } else if h == context_clone.read().unwrap().hide_quake_event {
+                            switch::trace!("message_queue", log::Level::Info, "WaitForMultipleObjects: HIDE_WAIT");
+                            ShowWindow(context_clone.read().unwrap().quake_window, SW_HIDE);
+                            ShowWindow(context_clone.read().unwrap().quake_window, SW_MINIMIZE);
+                            ResetEvent(context_clone.read().unwrap().hide_quake_event);
+                        } else if h == context_clone.read().unwrap().current_running_process {
+                            waits_clone.lock().unwrap().remove(context_clone.read().unwrap().current_running_process);
+                            context_clone.try_write().unwrap().current_running_process = HANDLE(0);
+                            set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                        } else if h == context_clone.read().unwrap().start_switch_read_overlapped.hEvent {
+                            if context_clone.read().unwrap().current_running_process.is_invalid() {
+                                let mut buf_read = 0u32;
+
+                                GetOverlappedResult(context_clone.read().unwrap().start_switch_read,
+                                    &context_clone.read().unwrap().start_switch_read_overlapped,
+                                    &mut buf_read,
+                                    BOOL(0));
+                                let cmdline = format!("{} {}", &command_rc, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap());
+                                let pid = switch::create_process::create_process(cmdline.clone());
+
+                                if pid.is_err() {
+                                    //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                                    // ResetEvent(run_quake_event);
+                                    //continue
+                                    switch::trace!("runtime", log::Level::Error, "create_process {} failed: {:?}", &cmdline, pid.err());
+                                } else {
+                                    context_clone.write().unwrap().current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid.unwrap());
+                                    switch::trace!("message_queue", log::Level::Info, "create_process handle: {:?}", context_clone.write().unwrap().current_running_process.0);
+                                    waits_clone.lock().unwrap().add(context_clone.read().unwrap().current_running_process);
+                                };
+                            }
+
+                            if !context_clone.read().unwrap().current_running_process.is_invalid() {
+                                _ = set_foreground_window_terminal(context_clone.read().unwrap().quake_window);
+                            }
+
+                            // Read for the next command.
+                            let mut context_unwrapped = context_clone.write().unwrap();
+
+                            ReadFile(context_unwrapped.start_switch_read,
+                                buf.as_mut_ptr() as _, 
+                                buf.len() as u32,
+                                std::ptr::null_mut(),
+                                &mut context_unwrapped.start_switch_read_overlapped);
+                            if GetLastError() != ERROR_IO_PENDING {
+                                switch::trace!("runtime", log::Level::Info, "ReadFile start_switch_read failed with {}", GetLastError().0);
+                            }
+                            SetLastError(NO_ERROR);
+                        } else if h == context_clone.read().unwrap().btm_event {
+                            // Same as above but we want to run unelevated because the path for btm is medium integrity.
+                            if context_clone.read().unwrap().current_running_process.is_invalid() {
+                                let cmdline: String;
+                                // cargo install bottom
+                                let btm_path = "%USERPROFILE%\\.cargo\\bin\\btm.exe -b\0";
+                                let mut expanded: [u8; 512] = [0; 512];
+                                // PSTR(expanded.as_mut_ptr())
+                                let len = windows::Win32::System::Environment::ExpandEnvironmentStringsA(PCSTR(btm_path.as_ptr()), &mut expanded) as usize;
+                                // Exclude null terminator which is needed for ExpandEnvironmentStringsA but not for rust strings.
+                                cmdline = String::from_utf8_lossy(&expanded[..len-1]).into();
+
+                                let pid = switch::create_process::create_process(cmdline.clone());
+
+                                if pid.is_err() {
+                                    //set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                                    // ResetEvent(run_quake_event);
+                                    //continue
+                                    switch::trace!("runtime", log::Level::Error, "create_medium_process {} failed: {:?}", &cmdline, pid.err());
+                                    return;
+                                } else {
+                                    context_clone.write().unwrap().current_running_process = OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), pid.unwrap());
+                                    waits_clone.lock().unwrap().add(context_clone.read().unwrap().current_running_process);
+                                };
+                            }
+                            if !context_clone.read().unwrap().current_running_process.is_invalid() {
+                                _ = set_foreground_window_terminal(context_clone.read().unwrap().quake_window);
+                            }
+
+                        } else {
+                            assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
+                        }
+                    };
+
+                    if threads.len() < 5 {
+                        threads.push(std::thread::spawn(closure));
                     } else {
-                        assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
+                        closure();
                     }
                 },
                 WaitResult::Message => {
                     while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
                         match msg.message {
                             WM_HOTKEY => {
-                                // println!("Hotkey pressed!");
                                 switch::trace!("hotkey", log::Level::Info, "Hotkey pressed!");
 
                                 if msg.wParam.0 as i32 == QUAKE_HOT_KEY_ID{
@@ -773,7 +825,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                                 // if current_running_process.is_invalid() {
                                 //     SetEvent(run_quake_event);
                                 // } else {
-                                //     set_foreground_window_terminal(quake_window)?;
+                                //     set_foreground_window_terminal(context.quake_window)?;
                                 // }
                             },
                             // WM_START_SWITCH => {
@@ -794,15 +846,15 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         UnhookWindowsHookEx(HOOK_HANDLE);
         UnregisterHotKey(HWND(0), QUAKE_HOT_KEY_ID);
-        CloseHandle(start_switch_read_overlapped.hEvent);
-        CloseHandle(should_exit_event);
-        CloseHandle(run_quake_event);
-        CloseHandle(open_quake_event);
-        CloseHandle(hide_quake_event);
+        CloseHandle(context.read().unwrap().start_switch_read_overlapped.hEvent);
+        CloseHandle(context.read().unwrap().should_exit_event);
+        CloseHandle(context.read().unwrap().run_quake_event);
+        CloseHandle(context.read().unwrap().open_quake_event);
+        CloseHandle(context.read().unwrap().hide_quake_event);
 
-        DestroyWindow(quake_window); // Doesn't work..
-        SendMessageW(quake_window, WM_CLOSE, WPARAM(0), LPARAM(0));
-        SendMessageW(quake_window, WM_QUIT, WPARAM(0), LPARAM(0));
+        DestroyWindow(context.read().unwrap().quake_window); // Doesn't work..
+        SendMessageW(context.read().unwrap().quake_window, WM_CLOSE, WPARAM(0), LPARAM(0));
+        SendMessageW(context.read().unwrap().quake_window, WM_QUIT, WPARAM(0), LPARAM(0));
         // kill_window_process(quake_window);
 
         return Ok(());

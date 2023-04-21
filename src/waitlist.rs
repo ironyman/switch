@@ -14,6 +14,9 @@ pub enum WaitResult {
     Error(u32)
 }
 
+unsafe impl Send for WaitList {}
+unsafe impl Sync for WaitList {}
+
 impl WaitList {
     pub fn new() -> WaitList {
         WaitList{
@@ -55,5 +58,21 @@ impl WaitList {
                 return WaitResult::Error(signalled as u32);
             }
         }
+    }
+
+    pub fn waiter(&self) -> Box<dyn FnOnce() -> WaitResult> {
+        let handles = self.handles.lock().unwrap().clone();
+        Box::new(move || {
+            unsafe {
+                let signalled = MsgWaitForMultipleObjects(handles.as_ref(), BOOL(0), INFINITE, QS_ALLINPUT) as usize;
+                if signalled < handles.len() {
+                    return WaitResult::Handle(handles[signalled]);
+                } else if signalled == handles.len() {
+                    return WaitResult::Message;
+                } else {
+                    return WaitResult::Error(signalled as u32);
+                }
+            }
+        })
     }
 }
