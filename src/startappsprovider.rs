@@ -669,7 +669,6 @@ impl StartAppsProvider {
     }
 
     fn query_directory(&mut self) -> Vec<&mut dyn ListItem> {
-
         let maybe_dir_entry = std::path::Path::new(&self.query);
 
         let (path, query) = if self.query.ends_with("\\") && maybe_dir_entry.exists() {
@@ -850,6 +849,10 @@ impl ListContentProvider for StartAppsProvider {
         //     *command = query.clone();
         // }
         self.query = query;
+
+        if self.query.starts_with("~") {
+            self.query = std::env::var("USERPROFILE").unwrap_or("~".into()) + &self.query[1..];
+        }
 
         let maybe_dir_entry = std::path::Path::new(&self.query);
 
