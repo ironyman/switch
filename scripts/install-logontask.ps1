@@ -37,3 +37,4 @@ Register-ScheduledTask `
     -Description "Start switch.exe with quakerun.exe at logon" `
     -force | out-null
 
+Get-ScheduledTask -taskpath \ -TaskName quakerun | select -ExpandProperty Actions
