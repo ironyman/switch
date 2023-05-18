@@ -154,6 +154,7 @@ pub fn enum_window() -> windows::core::Result<Vec<WindowInfo>> {
     unsafe { 
 //        EnumWindows(Some(enum_window_proc), LPARAM(&mut windows as *mut _ as isize)).ok()
         EnumWindows(Some(enum_window_proc), LPARAM(&mut windows as *mut _ as isize)).ok()?;
+        // EnumWindows can fail with GLE E_HANDLE, maybe something in enum_window_proc is failing.
         return Ok(windows);
     }
 }
