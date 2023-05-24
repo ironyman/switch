@@ -22,6 +22,8 @@ use windows::{
 };
 
 use clap::{Arg, Command};
+use threadpool::ThreadPool;
+
 use switch::windowprovider;
 use switch::setforegroundwindow::set_foreground_window_terminal;
 use switch::waitlist::{WaitList, WaitResult};
@@ -367,7 +369,7 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
         if press_state == WM_KEYDOWN && vk == VK_P {
             switch::trace!("hotkey", log::Level::Info, "CAPS + P pressed");
             std::thread::spawn(move || {
-                let arg = "--mode startapps";
+                let arg: &str = "--mode startapps";
                 // let layout = std::alloc::Layout::from_size_align(arg.len(), 1).unwrap();
                 // let buf = std::alloc::alloc(layout);
                 // unsafe { PostThreadMessageA(MAIN_THREAD_ID, WM_START_SWITCH, WPARAM(buf as usize), LPARAM(0)); }
@@ -380,7 +382,7 @@ unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lpa
                     &mut written,
                     std::ptr::null_mut());
                 assert!(written as usize == arg.len());
-                switch::trace!("hotkey", log::Level::Info, "cap + p pressed wrote to pipe");
+                switch::trace!("hotkey", log::Level::Info, "{:?} wrote to pipe", &arg);
                 return;
             });
         } else if press_state == WM_KEYDOWN && vk == VK_RETURN {
@@ -510,11 +512,13 @@ fn initialize_index() {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "message_queue"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey", "message_queue"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
     initialize_index();
+
+    let pool = ThreadPool::new(5);
 
     unsafe {
         // CoInitializeEx(0, COINIT_APARTMENTTHREADED).ok();
@@ -588,7 +592,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         context.write().unwrap().start_switch_read_overlapped = windows::Win32::System::IO::OVERLAPPED::default();
         context.write().unwrap().start_switch_read_overlapped.hEvent = CreateEventW(
             std::ptr::null(),
-            BOOL(0),
+            BOOL(1),
             BOOL(0),
             PCWSTR(std::ptr::null()),
         );
@@ -668,7 +672,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         // }
 
         HOOK_HANDLE = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), HINSTANCE(0), 0);
-        let mut threads = vec![];
+        // let mut threads = vec![];
 
         loop {
             let mut msg: MSG = std::mem::zeroed();
@@ -683,11 +687,21 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                         switch::trace!("init", log::Level::Info, "quake_terminal_runner exiting.");
                         break;
                     }
-                    
+
+                    ResetEvent(h);
+
                     let command_rc: std::sync::Arc<std::string::String> = std::sync::Arc::new(command.into());
                     let waits_clone = waits.clone();
                     let context_clone = context.clone();
                     let buf_rc2 = buf_rc.clone();
+
+                    // If it's a process we want to remove it now so we don't get a double event.
+                    if h == context_clone.read().unwrap().current_running_process {
+                        waits_clone.lock().unwrap().remove(context_clone.read().unwrap().current_running_process);
+                        context_clone.try_write().unwrap().current_running_process = HANDLE(0);
+                        set_event_by_name(HIDE_QUAKE_EVENT_NAME);
+                        continue;
+                    }
 
                     let closure = move || {
                         if h == context_clone.read().unwrap().run_quake_event {
@@ -730,6 +744,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             ShowWindow(context_clone.read().unwrap().quake_window, SW_MINIMIZE);
                             ResetEvent(context_clone.read().unwrap().hide_quake_event);
                         } else if h == context_clone.read().unwrap().current_running_process {
+                            // Don't need this anymore we don't want to handle this case in another thread.
                             waits_clone.lock().unwrap().remove(context_clone.read().unwrap().current_running_process);
                             context_clone.try_write().unwrap().current_running_process = HANDLE(0);
                             set_event_by_name(HIDE_QUAKE_EVENT_NAME);
@@ -765,6 +780,11 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
                             // Read for the next command.
                             let mut context_unwrapped = context_clone.write().unwrap();
+
+                            let saved_event = context_unwrapped.start_switch_read_overlapped.hEvent;
+                            ResetEvent(saved_event);
+                            context_unwrapped.start_switch_read_overlapped = OVERLAPPED::default();
+                            context_unwrapped.start_switch_read_overlapped.hEvent = saved_event;
 
                             ReadFile(context_unwrapped.start_switch_read,
                                 buf.as_mut_ptr() as _, 
@@ -806,15 +826,17 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             }
 
                         } else {
+                            switch::trace!("runtime", log::Level::Error, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
                             assert!(false, "Unexpected MsgWaitForMultipleObjects signalled handle: {}.", h.0);
                         }
                     };
 
-                    if threads.len() < 5 {
-                        threads.push(std::thread::spawn(closure));
-                    } else {
-                        closure();
-                    }
+                    // if threads.len() < 5 {
+                    //     threads.push(std::thread::spawn(closure));
+                    // } else {
+                    //     closure();
+                    // }
+                    pool.execute(closure);
                 },
                 WaitResult::Message => {
                     while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
@@ -831,6 +853,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                                         arg.len() as u32,
                                         &mut written,
                                         std::ptr::null_mut());
+                                    switch::trace!("hotkey", log::Level::Info, "{:?} wrote to pipe", &arg);
                                     assert!(written as usize == arg.len());
                                 }
 
