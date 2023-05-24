@@ -510,7 +510,7 @@ fn initialize_index() {
 }
 
 fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
-    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "hotkey"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
+    switch::log::initialize_log(log::Level::Debug, &["init", "runtime", "message_queue"], switch::path::get_app_data_path("quake_terminal_runner.log")?)?;
     // log::info!("quake_terminal_runner started.");
     switch::trace!("init", log::Level::Info, "quake_terminal_runner started.");
 
@@ -529,6 +529,13 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
         let context = std::sync::Arc::new(
             std::sync::RwLock::new(
                 MessageLoopContext::default()
+            )
+        );
+        // This buf is for reading run command args.
+        // let mut buf = [0u8; 256];
+        let buf_rc = std::sync::Arc::new(
+            std::sync::Mutex::new(
+                Box::pin([0u8; 256])
             )
         );
 
@@ -578,7 +585,6 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         // Starting waiting for "start switch" messages.
         // let mut start_switch_read = HANDLE(0);
-        let mut buf = [0u8; 256];
         context.write().unwrap().start_switch_read_overlapped = windows::Win32::System::IO::OVERLAPPED::default();
         context.write().unwrap().start_switch_read_overlapped.hEvent = CreateEventW(
             std::ptr::null(),
@@ -597,7 +603,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
             SDDL_REVISION_1,
             &mut (sa.lpSecurityDescriptor as *mut SECURITY_DESCRIPTOR),
             std::ptr::null_mut());
-            context.write().unwrap().start_switch_read = CreateNamedPipeA(
+        context.write().unwrap().start_switch_read = CreateNamedPipeA(
             PCSTR("\\\\.\\Pipe\\QuakeTerminalRunner\0".as_ptr()),
             PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
             PIPE_TYPE_MESSAGE,
@@ -634,6 +640,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
 
         {
             let mut context_unwrapped = context.write().unwrap();
+            let mut buf = buf_rc.lock().unwrap();
             let _res = ReadFile(context_unwrapped.start_switch_read, 
                 buf.as_mut_ptr() as _, 
                 buf.len() as u32,
@@ -680,8 +687,9 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                     let command_rc: std::sync::Arc<std::string::String> = std::sync::Arc::new(command.into());
                     let waits_clone = waits.clone();
                     let context_clone = context.clone();
+                    let buf_rc2 = buf_rc.clone();
 
-                    let mut closure = move || {
+                    let closure = move || {
                         if h == context_clone.read().unwrap().run_quake_event {
                             // not using this anymore.
                             // continue;
@@ -726,6 +734,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             context_clone.try_write().unwrap().current_running_process = HANDLE(0);
                             set_event_by_name(HIDE_QUAKE_EVENT_NAME);
                         } else if h == context_clone.read().unwrap().start_switch_read_overlapped.hEvent {
+                            let mut buf = buf_rc2.lock().unwrap();
                             if context_clone.read().unwrap().current_running_process.is_invalid() {
                                 let mut buf_read = 0u32;
 
@@ -734,6 +743,8 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                                     &mut buf_read,
                                     BOOL(0));
                                 let cmdline = format!("{} {}", &command_rc, std::str::from_utf8(&buf[0..buf_read as usize]).unwrap());
+                                switch::trace!("runtime", log::Level::Info, "start_switch_read_overlapped case: running {:?} from buf {:?}", cmdline, buf.as_mut_ptr());
+
                                 let pid = switch::create_process::create_process(cmdline.clone());
 
                                 if pid.is_err() {
@@ -763,6 +774,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                             if GetLastError() != ERROR_IO_PENDING {
                                 switch::trace!("runtime", log::Level::Info, "ReadFile start_switch_read failed with {}", GetLastError().0);
                             }
+                            switch::trace!("runtime", log::Level::Info, "ReadFile start_switch_read queued to read to {:?}", buf.as_mut_ptr());
                             SetLastError(NO_ERROR);
                         } else if h == context_clone.read().unwrap().btm_event {
                             // Same as above but we want to run unelevated because the path for btm is medium integrity.
@@ -811,7 +823,7 @@ fn quake_terminal_runner(command: &str) -> anyhow::Result<()> {
                                 switch::trace!("hotkey", log::Level::Info, "Hotkey pressed!");
 
                                 if msg.wParam.0 as i32 == QUAKE_HOT_KEY_ID{
-                                    let arg = "--mode window\0";
+                                    let arg = "--mode window";
                                     let mut written = 0u32;
                                     WriteFile(
                                         START_SWITCH_WRITE,
